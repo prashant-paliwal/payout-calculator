@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nature 360 Commission Calculator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Works out one month of the Nature 360 commission plan for any team and checks the payout against the company's budget.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: sticky header + three views (overview, scenario workspace, plan rules); summary first, detail below. */
+:root {
+  --bg: #F3F6F4; --surface: #FFFFFF; --surface-2: #EBF0ED; --ink: #13241F; --muted: #55635D; --line: #D5DED9;
+  --brand: #1E4D3F; --brand-ink: #FFFFFF; --accent: #A97A1F; --link: #8A8270;
+  --good: #19693F; --good-bg: #DCF0E4; --warn: #7F5300; --warn-bg: #FAEDC9; --bad: #9C1D1D; --bad-bg: #F8DCD8;
+  --band-paid: #E1EEE7; --band-deep: #F0ECE3;
+  --t-none: #ECEEED; --t-none-e: #9EA8A3; --t-bronze: #EFD5BE; --t-bronze-e: #A56C3B;
+  --t-silver: #DEE3EA; --t-silver-e: #7A889A; --t-gold: #F4DF9E; --t-gold-e: #A9841B;
+  --t-plat: #C6DEF0; --t-plat-e: #3C76A2; --sel: #D2452B;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E1513; --surface: #151F1C; --surface-2: #1B2925; --ink: #E5EEEA; --muted: #9CADA6; --line: #2A3B35;
+  --brand: #1E4D3F; --brand-ink: #FFFFFF; --accent: #E2B55A; --link: #6F6A5C;
+  --good: #82D9A9; --good-bg: #163828; --warn: #F0CC6E; --warn-bg: #3A3013; --bad: #F2A4A4; --bad-bg: #431C1C;
+  --band-paid: #16302A; --band-deep: #221F19;
+  --t-none: #2A302E; --t-none-e: #66706B; --t-bronze: #4E3524; --t-bronze-e: #C9915F;
+  --t-silver: #343C46; --t-silver-e: #9AA8B8; --t-gold: #4D4119; --t-gold-e: #D9B34A;
+  --t-plat: #1E3A50; --t-plat-e: #7FB4DB; --sel: #FF7A5C; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0E1513; --surface: #151F1C; --surface-2: #1B2925; --ink: #E5EEEA; --muted: #9CADA6; --line: #2A3B35;
+  --brand: #1E4D3F; --brand-ink: #FFFFFF; --accent: #E2B55A; --link: #6F6A5C;
+  --good: #82D9A9; --good-bg: #163828; --warn: #F0CC6E; --warn-bg: #3A3013; --bad: #F2A4A4; --bad-bg: #431C1C;
+  --band-paid: #16302A; --band-deep: #221F19;
+  --t-none: #2A302E; --t-none-e: #66706B; --t-bronze: #4E3524; --t-bronze-e: #C9915F;
+  --t-silver: #343C46; --t-silver-e: #9AA8B8; --t-gold: #4D4119; --t-gold-e: #D9B34A;
+  --t-plat: #1E3A50; --t-plat-e: #7FB4DB; --sel: #FF7A5C; color-scheme: dark }
+* { box-sizing: border-box }
+html { -webkit-text-size-adjust: 100% }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-ui) }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand) }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance }
+h1 { font-size: 26px; font-weight: 700 } h2 { font-size: 19px; font-weight: 600 } h3 { font-size: 15px; font-weight: 600 }
+p { margin: 0 }
+.num, td.n, .kpi .v { font-family: var(--font-num); font-variant-numeric: tabular-nums }
+.muted { color: var(--muted) }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 600 }
+button, input, select { font: inherit; color: inherit }
+:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px }
+
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--brand); color: var(--brand-ink) }
+.topbar-in { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-block: 10px }
+.brand { display: flex; align-items: center; gap: 10px }
+.brand .mark { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #E2B55A 0 32%, #2F6B57 33% 62%, #3D7F69 63%) }
+.brand-name { font-weight: 700; font-size: 16px } .brand-sub { font-size: 12px; opacity: .8 }
+.nav { display: flex; gap: 4px; flex-wrap: wrap }
+.nav a { color: var(--brand-ink); text-decoration: none; padding: 7px 12px; border-radius: 8px; font-weight: 500; font-size: 14px; opacity: .85 }
+.nav a[aria-current="page"] { background: rgba(255,255,255,.16); opacity: 1 }
+.nav a:hover { opacity: 1 }
+
+main { padding-block: 24px 64px }
+.view { display: grid; gap: 20px }
+.view[hidden], [hidden] { display: none !important }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0 }
+.card > h2 + p, .card > h2 + .muted { margin-top: 4px }
+.stack { display: grid; gap: 14px; align-content: start }
+.grid2 { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) }
+@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr } }
+
+.answer { display: grid; gap: 10px; border-left: 4px solid var(--good); background: var(--surface) }
+.answer .big { font-size: 22px; font-weight: 700; line-height: 1.25 }
+.risks { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 4px }
+.risk { background: var(--surface-2); border-radius: 10px; padding: 12px; font-size: 14px }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px }
+table { border-collapse: collapse; width: 100%; font-size: 14px }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; vertical-align: middle }
+th { background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em }
+td.n, th.n { text-align: right }
+tr:last-child td { border-bottom: 0 }
+tr.total td { font-weight: 700; background: var(--surface-2) }
+tr.clickable { cursor: pointer } tr.clickable:hover td { background: var(--surface-2) }
+
+.pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap }
+.pill.good { background: var(--good-bg); color: var(--good) } .pill.warn { background: var(--warn-bg); color: var(--warn) }
+.pill.bad { background: var(--bad-bg); color: var(--bad) } .pill.idle { background: var(--surface-2); color: var(--muted) }
+.neg { color: var(--bad) }
+
+.chips { display: flex; gap: 8px; flex-wrap: wrap }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-size: 14px; font-weight: 500 }
+.chip[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); border-color: var(--brand) }
+
+.kpis { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px }
+.kpi .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600 }
+.kpi .v { font-size: 21px; font-weight: 600; margin-top: 4px }
+.kpi .s { font-size: 13px; color: var(--muted); margin-top: 2px }
+
+.budget { display: grid; gap: 6px }
+.bar { position: relative; height: 16px; background: var(--surface-2); border-radius: 8px; overflow: hidden }
+.bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px }
+.bar .mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .55 }
+.scale { position: relative; height: 18px; font-size: 12px; color: var(--muted) }
+.scale span { position: absolute; transform: translateX(-50%); white-space: nowrap }
+
+.rowlist { display: grid; gap: 0 }
+.rowlist .r { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line) }
+.rowlist .r:last-child { border-bottom: 0 }
+.rowlist .r.strong { font-weight: 700 }
+.rowlist .r .num { white-space: nowrap }
+
+details summary { cursor: pointer; font-weight: 600 }
+.form { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 12px }
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted) }
+.field input, .field select, td input, td select { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: var(--ink); min-width: 0 }
+td input, td select { padding: 4px 6px; font-size: 14px }
+td input.id { width: 76px } td input.name { width: 150px } td input.sp { width: 76px } td input.pv { width: 90px; text-align: right; font-family: var(--font-num) }
+td select { width: 170px }
+
+.treebox { overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); max-height: 640px }
+.tree text { font-family: var(--font-ui); fill: var(--ink) }
+.tree .lvl { font-size: 13px; font-weight: 700; fill: var(--muted) }
+.tree .lvl.paid { fill: var(--good) }
+.tree .node { cursor: pointer }
+.tree .node rect { stroke-width: 1.4 }
+.tree .node.sel rect { stroke: var(--sel); stroke-width: 3 }
+.tree .t1 { font-size: 12.5px; font-weight: 700 } .tree .t2 { font-size: 11.5px; fill: var(--muted) } .tree .t3 { font-size: 12px; font-weight: 700; font-family: var(--font-num) }
+.t-None rect { fill: var(--t-none); stroke: var(--t-none-e) } .t-Bronze rect { fill: var(--t-bronze); stroke: var(--t-bronze-e) }
+.t-Silver rect { fill: var(--t-silver); stroke: var(--t-silver-e) } .t-Gold rect { fill: var(--t-gold); stroke: var(--t-gold-e) }
+.t-Platinum rect { fill: var(--t-plat); stroke: var(--t-plat-e) }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; color: var(--muted) }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 5px; border: 1px solid }
+
+.explain { display: grid; gap: 10px }
+.step { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--line) }
+.step:last-child { border-bottom: 0 }
+.step .k { font-weight: 600 } .step .why { color: var(--muted); font-size: 14px } .step .amt { font-family: var(--font-num); font-weight: 600; white-space: nowrap }
+@media (max-width: 640px) { .step { grid-template-columns: 1fr auto } .step .why { grid-column: 1 / -1 } }
+
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-weight: 500; font-size: 14px }
+.btn.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand) }
+.btn.small { padding: 3px 8px; font-size: 13px }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+.flag { color: var(--bad); font-weight: 600 }
+.note { font-size: 13px; color: var(--muted) }
+.qgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) }
+.q { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 6px; align-content: start }
+.q .ask { font-weight: 700 }
+.rules-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr)) }
+.rules-grid .card { display: grid; gap: 10px; align-content: start }
+.rules-grid .card:first-child { grid-column: 1 / -1 }
+.rules-grid table input { width: 76px; text-align: right; font-family: var(--font-num) }
+.rules-grid table input.txt { width: 150px; text-align: left; font-family: var(--font-ui) }
+@media (prefers-reduced-motion: no-preference) { .bar .fill { transition: width .3s ease } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>
+      <div><div class="brand-name">Nature 360 Commission Calculator</div><div class="brand-sub">Reseller plan v4 · one month · amounts in S$</div></div>
+    </div>
+    <nav class="nav" aria-label="Views">
+      <a href="#overview" data-nav="overview">Overview</a>
+      <a href="#s1" data-nav="scenario">Scenarios</a>
+      <a href="#rules" data-nav="rules">Plan rules</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- OVERVIEW -->
+  <section id="view-overview" class="view" hidden>
+    <div class="card answer" id="ov-answer"></div>
+    <div class="card stack">
+      <div><h2>Every scenario at a glance</h2><p class="muted">Each row is one full calculation. Click a row to open it.</p></div>
+      <div class="tablewrap"><table id="ov-summary"></table></div>
+    </div>
+    <div>
+      <h2 style="margin-bottom:12px">The three questions this answers</h2>
+      <div class="qgrid" id="ov-questions"></div>
+    </div>
+  </section>
+
+  <!-- SCENARIO WORKSPACE -->
+  <section id="view-scenario" class="view" hidden>
+    <div class="chips" id="sc-chips" role="group" aria-label="Scenarios"></div>
+    <div class="stack"><div><p class="eyebrow" id="sc-eyebrow"></p><h1 id="sc-title"></h1></div><p class="muted" id="sc-desc"></p></div>
+    <div class="kpis" id="sc-kpis"></div>
+    <div class="card budget" id="sc-budget"></div>
+    <div class="grid2">
+      <div class="card stack"><h2>Where the money goes this month</h2><div class="rowlist" id="sc-breakdown"></div></div>
+      <div class="card stack">
+        <h2>Pay check for one rep</h2>
+        <p class="muted">Click any box in the tree or any row in the table to see how that rep's pay is worked out.</p>
+        <div class="explain" id="sc-person"></div>
+      </div>
+    </div>
+    <div class="card stack">
+      <div class="btnrow" style="justify-content:space-between">
+        <div><h2>The team as a tree</h2><p class="muted">Who sponsored whom, top to bottom. Each box: rep, tier or rank, own sales, total pay.</p></div>
+      </div>
+      <div class="legend" id="sc-legend"></div>
+      <div class="treebox"><svg class="tree" id="sc-tree" role="img" aria-label="Team tree"></svg></div>
+      <p class="note" id="sc-treenote"></p>
+    </div>
+    <div class="card stack">
+      <div class="btnrow" style="justify-content:space-between">
+        <div><h2>Team table</h2><p class="muted">Edit any rep, add or remove reps: every number updates. Changes are kept in this browser only.</p></div>
+        <div class="btnrow"><button class="btn primary" id="btn-add" type="button">Add a rep</button><button class="btn" id="btn-reset-sc" type="button">Reset this scenario</button></div>
+      </div>
+      <details>
+        <summary>Sales and qualifiers outside this team</summary>
+        <p class="note" style="margin-top:6px">Leave at 0 to treat this team as the whole company. Use these only to add sales or pool qualifiers not listed in the table.</p>
+        <div class="form" id="sc-outside"></div>
+      </details>
+      <div class="tablewrap"><table id="sc-table"></table></div>
+      <datalist id="id-list"></datalist>
+    </div>
+  </section>
+
+  <!-- RULES -->
+  <section id="view-rules" class="view" hidden>
+    <div class="btnrow" style="justify-content:space-between">
+      <div><h1>Plan rules and costing</h1><p class="muted">Every number the calculator uses. Change any of them and every scenario updates. Source: Nature 360 / Sequoia reseller commission plan v4 (14 Oct 2022) and the client's costing slide.</p></div>
+      <button class="btn" id="btn-reset-all" type="button">Reset rules and scenarios</button>
+    </div>
+    <div class="rules-grid" id="rules"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ defaults */
+const TIERS = ["Bronze", "Silver", "Gold", "Platinum"];
+const RANKS = ["Sales Star", "Diamond", "Crown Diamond", "Royal Crown Diamond"];
+const DEFAULT_RULES = {
+  pvValue: 5,
+  tiers: [
+    { name: "Bronze", pv: 180, gv: 0, r: [5, 2, 0] },
+    { name: "Silver", pv: 1800, gv: 9000, r: [6, 2, 1] },
+    { name: "Gold", pv: 6000, gv: 24000, r: [7, 3, 3] },
+    { name: "Platinum", pv: 13500, gv: 54000, r: [9, 5, 4] }],
+  pools: { special: 1, generation: 2, star: 3, diamond: 1, crown: 0.7, royal: 0.3 },
+  special: [{ legs: 3, gv: 3000, shares: 1 }, { legs: 2, gv: 5000, shares: 3 }, { legs: 2, gv: 10000, shares: 6 }],
+  gen: { gold: { pv: 3000, gv: 10000, shares: 1 }, platinum: { pv: 6000, gv: 25000, shares: 3 } },
+  starLegGV: 25000, legsNeeded: 2,
+  budgetMax: 45, buffer: 5,
+  costs: { card: 3.5, operating: 26.5, product: 25, fixedYear: 292560 },
+  packages: [
+    { name: "Product Member", fee: 798, disc: 10 }, { name: "Junior Entrepreneur", fee: 5980, disc: 15 },
+    { name: "Senior Entrepreneur", fee: 9980, disc: 20 }, { name: "Entrepreneur Partner", fee: 19980, disc: 30 }]
+};
+
+function rep(id, name, sponsor, pv, pkg) { return { id, name, sponsor: sponsor || "", pv, pkg: pkg || "" }; }
+function defaultScenarios() {
+  const ex1 = [rep("YOU", "You", "", 6000),
+    rep("A1", "Leg 1", "YOU", 2000), rep("A2", "Leg 2", "YOU", 4500), rep("A3", "Leg 3", "YOU", 1500),
+    rep("A4", "Leg 4", "YOU", 1200), rep("A5", "Leg 5", "YOU", 150), rep("A6", "Leg 6", "YOU", 800),
+    rep("B1", "Rep B1", "A1", 300), rep("B2", "Rep B2", "A1", 520), rep("B3", "Rep B3", "A2", 1800),
+    rep("B4", "Rep B4", "A2", 150), rep("B5", "Rep B5", "A3", 1200), rep("B6", "Rep B6", "A4", 500),
+    rep("C1", "Rep C1", "B1", 500), rep("C2", "Rep C2", "B1", 900), rep("C3", "Rep C3", "B3", 700),
+    rep("C4", "Rep C4", "B3", 1000), rep("C5", "Rep C5", "B5", 300),
+    rep("D1", "Rep D1", "C1", 6000), rep("D2", "Rep D2", "C3", 500),
+    rep("E1", "Rep E1", "D1", 1800), rep("E2", "Rep E2", "D1", 1800),
+    rep("F1", "Rep F1", "E1", 500), rep("G1", "Rep G1", "F1", 800), rep("H1", "Rep H1", "G1", 200)];
+  const deep = [rep("YOU", "You", "", 13500)];
+  [["X", 12, 2500], ["Y", 12, 2200], ["Z", 10, 1500]].forEach(([leg, n, pv]) => {
+    let prev = "YOU";
+    for (let k = 1; k <= n; k++) { const id = leg + String(k).padStart(2, "0"); deep.push(rep(id, `Leg ${leg}, level ${k}`, prev, pv)); prev = id; }
+  });
+  const stress = (pkg) => {
+    const out = [rep("TOP", "Top leader", "", 13500, pkg)]; let front = ["TOP"];
+    for (let d = 1; d <= 4; d++) {
+      const next = [];
+      front.forEach(p => { for (let k = 1; k <= 3; k++) { const id = p === "TOP" ? `N${k}` : `${p}.${k}`; out.push(rep(id, `Level ${d} rep`, p, 13500, pkg)); next.push(id); } });
+      front = next;
+    }
+    return out;
+  };
+  const none = { sales: 0, sp: 0, gen: 0, ss: 0, dia: 0, crown: 0, royal: 0 };
+  return [
+    { key: "s1", short: "1 · Example 1", title: "The plan's Example 1", eyebrow: "Scenario 1 · 25 reps, 8 levels deep",
+      desc: "The team from the plan document. The outside inputs reproduce the plan's own assumptions (company sales S$200,100; 6 Special and 4 Generation shares in total), so YOU gets exactly the plan's S$6,067.",
+      outside: { ...none, sales: 22000, sp: 5, gen: 3 }, people: ex1 },
+    { key: "s2", short: "2 · Deep team", title: "A team 12 levels deep", eyebrow: "Scenario 2 · 35 reps, 12 levels deep",
+      desc: "Three legs that keep going down: 12, 12 and 10 levels. Every level adds to the team sales of everyone above it, but each rep's Level Bonus only reaches 3 levels down.",
+      outside: { ...none }, people: deep },
+    { key: "s3", short: "3 · Stress test", title: "Stress test: every rep sells 13,500 PV", eyebrow: "Scenario 3 · 121 reps, 4 levels deep",
+      desc: "Every rep sponsors 3 and sells the Platinum amount. Close to the most the plan can pay: it creates Sales Stars, Diamonds and a Crown Diamond.",
+      outside: { ...none }, people: stress("") },
+    { key: "s4", short: "4 · Your team", title: "Your own team", eyebrow: "Scenario 4 · example rows",
+      desc: "Replace the example rows with a real team: add reps, set who sponsored them, their sales this month and their package.",
+      outside: { ...none }, people: [rep("YOU", "You (example)", "", 1800, "Senior Entrepreneur"), rep("R1", "Rep 1 (example)", "YOU", 900, "Junior Entrepreneur"), rep("R2", "Rep 2 (example)", "R1", 400, "Product Member")] },
+    { key: "s5", short: "5 · Stress + packages", title: "Stress test with every rep on the Partner package", eyebrow: "Scenario 5 · worst case",
+      desc: "Scenario 3's team, but every rep holds the Entrepreneur Partner package (30% retail discount): the plan's bonuses plus the biggest member discount.",
+      outside: { ...none }, people: stress("Entrepreneur Partner") }];
+}
+
+/* ------------------------------------------------------------------ state */
+const KEY = "n360-commission-calc-v1";
+const clone = (o) => JSON.parse(JSON.stringify(o));
+function loadState() {
+  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) return s; } } catch (e) { /* storage unavailable */ }
+  return { rules: clone(DEFAULT_RULES), scenarios: defaultScenarios() };
+}
+let state = loadState();
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } }
+const ui = { scen: 0, person: null };
+
+/* ------------------------------------------------------------------ format */
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = (v, d = 0) => (Number(v) || 0).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const pvf = (v) => (Math.abs(v - Math.round(v)) < 1e-9 ? num(v) : num(v, 1));
+function money(v) {
+  if (typeof v === "string") return v;
+  const neg = v < 0, a = Math.abs(v);
+  const s = "S$" + (Math.abs(a - Math.round(a)) < 0.005 ? num(Math.round(a)) : num(a, 2));
+  return neg ? "−" + s : s;
+}
+const pct = (v, d = 1) => (v * 100).toFixed(d) + "%";
+const tierName = (t) => (t === "None" ? "No tier" : t);
+
+/* ------------------------------------------------------------------ the plan, as code (mirrors the Excel formulas) */
+function calc(sc, R) {
+  const people = sc.people.filter(p => String(p.id || "").trim() !== "");
+  const byId = new Map(), errors = new Map();
+  people.forEach(p => { const id = String(p.id).trim(); if (byId.has(id)) errors.set(id, "Rep ID used twice"); else byId.set(id, p); });
+  const kids = new Map(), roots = [];
+  for (const [id, p] of byId) {
+    const s = String(p.sponsor || "").trim();
+    if (!s) { roots.push(id); continue; }
+    if (!byId.has(s)) { errors.set(id, "Sponsor ID not found"); roots.push(id); continue; }
+    if (!kids.has(s)) kids.set(s, []);
+    kids.get(s).push(id);
+  }
+  const depth = new Map();
+  const reach = (id, d) => { if (depth.has(id)) return; depth.set(id, d); (kids.get(id) || []).forEach(k => reach(k, d + 1)); };
+  roots.forEach(r => reach(r, 0));
+  for (const id of byId.keys()) if (!depth.has(id)) errors.set(id, "Sponsor loop");
+  const ok = (id) => depth.has(id);
+  const descCache = new Map();
+  const desc = (id) => {
+    if (descCache.has(id)) return descCache.get(id);
+    const out = [], stack = [[id, 0]], seen = new Set([id]);
+    while (stack.length) { const [x, d] = stack.pop(); for (const k of (kids.get(x) || [])) { if (seen.has(k)) continue; seen.add(k); out.push([k, d + 1]); stack.push([k, d + 1]); } }
+    descCache.set(id, out); return out;
+  };
+  const pv = (id) => Number(byId.get(id).pv) || 0;
+  const rows = new Map();
+  for (const id of byId.keys()) {
+    const d = desc(id), gv = d.reduce((a, [k]) => a + pv(k), 0);
+    const lv = [1, 2, 3].map(L => d.filter(([, dd]) => dd === L).reduce((a, [k]) => a + pv(k), 0));
+    let tier = "None";
+    for (let i = R.tiers.length - 1; i >= 0; i--) { const t = R.tiers[i]; if (pv(id) >= t.pv && gv >= t.gv) { tier = t.name; break; } }
+    rows.set(id, { id, name: byId.get(id).name || "", sponsor: String(byId.get(id).sponsor || "").trim(), pkg: byId.get(id).pkg || "",
+      pv: pv(id), gv, leg: pv(id) + gv, lv, tier, depth: depth.get(id), kids: kids.get(id) || [], descCount: d.length,
+      maxDown: d.reduce((m, [, dd]) => Math.max(m, dd), 0) });
+  }
+  const tierIdx = (t) => TIERS.indexOf(t);
+  for (const r of rows.values()) {
+    const rates = (R.tiers.find(t => t.name === r.tier) || { r: [0, 0, 0] }).r;
+    r.rates = rates.slice();
+    r.levelPV = r.lv[0] * rates[0] / 100 + r.lv[1] * rates[1] / 100 + r.lv[2] * rates[2] / 100;
+    r.level = r.levelPV * R.pvValue;
+    const legs = r.kids.map(k => rows.get(k).leg);
+    const [s1, s2, s3] = R.special;
+    const c1 = legs.filter(x => x >= s1.gv).length, c2 = legs.filter(x => x >= s2.gv).length, c3 = legs.filter(x => x >= s3.gv).length;
+    r.legCounts = [c1, c2, c3]; r.legs = legs;
+    r.spShares = 0;
+    if (tierIdx(r.tier) >= 1) {
+      if (c3 >= s3.legs && c2 >= s2.legs + s3.legs && c1 >= s1.legs + s2.legs + s3.legs) r.spShares = s3.shares;
+      else if (c2 >= s2.legs && c1 >= s1.legs + s2.legs) r.spShares = s2.shares;
+      else if (c1 >= s1.legs) r.spShares = s1.shares;
+    }
+    r.genShares = 0;
+    if (r.tier === "Platinum" && r.pv >= R.gen.platinum.pv && r.gv >= R.gen.platinum.gv) r.genShares = R.gen.platinum.shares;
+    else if (tierIdx(r.tier) >= 2 && r.pv >= R.gen.gold.pv && r.gv >= R.gen.gold.gv) r.genShares = R.gen.gold.shares;
+    r.bigLegs = legs.filter(x => x >= R.starLegGV).length;
+    r.star = tierIdx(r.tier) >= 2 && r.bigLegs >= R.legsNeeded;
+  }
+  const inTeam = (flag, id) => rows.get(id)[flag] || desc(id).some(([k]) => rows.get(k)[flag]);
+  for (const [flag, below] of [["dia", "star"], ["crown", "dia"], ["royal", "crown"]]) {
+    for (const r of rows.values()) {
+      r["legsWith_" + below] = r.kids.filter(k => inTeam(below, k)).length;
+      r[flag] = r.tier === "Platinum" && r["legsWith_" + below] >= R.legsNeeded;
+    }
+  }
+  for (const r of rows.values()) r.rank = r.royal ? "Royal Crown Diamond" : r.crown ? "Crown Diamond" : r.dia ? "Diamond" : r.star ? "Sales Star" : "";
+
+  const o = sc.outside || {};
+  const sales = [...rows.values()].reduce((a, r) => a + r.pv, 0) * R.pvValue + (Number(o.sales) || 0);
+  const spTotal = [...rows.values()].reduce((a, r) => a + r.spShares, 0) + (Number(o.sp) || 0);
+  const genTotal = [...rows.values()].reduce((a, r) => a + r.genShares, 0) + (Number(o.gen) || 0);
+  const rankPct = { "Sales Star": R.pools.star, "Diamond": R.pools.diamond, "Crown Diamond": R.pools.crown, "Royal Crown Diamond": R.pools.royal };
+  const outsideRank = { "Sales Star": Number(o.ss) || 0, "Diamond": Number(o.dia) || 0, "Crown Diamond": Number(o.crown) || 0, "Royal Crown Diamond": Number(o.royal) || 0 };
+  const rankCount = {};
+  RANKS.forEach(k => { rankCount[k] = [...rows.values()].filter(r => r.rank === k).length + outsideRank[k]; });
+  const discOf = (pkg) => { const p = R.packages.find(x => x.name === pkg); return p ? p.disc : 0; };
+  for (const r of rows.values()) {
+    r.special = spTotal > 0 ? sales * R.pools.special / 100 * r.spShares / spTotal : 0;
+    r.generation = genTotal > 0 ? sales * R.pools.generation / 100 * r.genShares / genTotal : 0;
+    r.master = r.rank ? sales * rankPct[r.rank] / 100 / rankCount[r.rank] : 0;
+    r.discPct = discOf(r.pkg);
+    r.disc = r.pv * R.pvValue * r.discPct / 100;
+    r.payout = r.level + r.special + r.generation + r.master;
+    r.total = r.payout + r.disc;
+    r.error = errors.get(r.id) || "";
+  }
+  const sum = (f) => [...rows.values()].reduce((a, r) => a + r[f], 0);
+  const level = sum("level"), disc = sum("disc");
+  const specialPaid = spTotal > 0 ? sales * R.pools.special / 100 : 0;
+  const genPaid = genTotal > 0 ? sales * R.pools.generation / 100 : 0;
+  const masterPaid = RANKS.reduce((a, k) => a + (rankCount[k] > 0 ? sales * rankPct[k] / 100 : 0), 0);
+  const paid = level + specialPaid + genPaid + masterPaid + disc;
+  const share = sales > 0 ? paid / sales : 0;
+  const target = (R.budgetMax - R.buffer) / 100, max = R.budgetMax / 100;
+  const result = sales === 0 ? "Enter sales" : share > max ? "OVER MAX" : share > target ? "Using buffer" : "Within target";
+  const costPct = (R.costs.card + R.costs.operating + R.costs.product) / 100;
+  const costs = sales * costPct, fixed = R.costs.fixedYear / 12;
+  const profit = sales - paid - costs - fixed;
+  const margin = 1 - costPct - share;
+  const breakEven = margin <= 0 ? "Never" : fixed / margin;
+  const poolPct = (R.pools.special + R.pools.generation + R.pools.star + R.pools.diamond + R.pools.crown + R.pools.royal) / 100;
+  return { rows, roots, kids, errors, sales, level, specialPaid, genPaid, masterPaid, disc, paid, share, target, max, result,
+    costs, fixed, profit, breakEven, spTotal, genTotal, rankCount, rankPct, kept: sales * poolPct - specialPaid - genPaid - masterPaid,
+    people: rows.size, maxDepth: Math.max(0, ...[...rows.values()].map(r => r.depth ?? 0)) };
+}
+function ceiling(R) {
+  const best = Math.max(...R.tiers.map(t => t.r[0] + t.r[1] + t.r[2]));
+  return (best + R.pools.special + R.pools.generation + R.pools.star + R.pools.diamond + R.pools.crown + R.pools.royal) / 100;
+}
+const pillClass = (res) => res === "OVER MAX" ? "bad" : res === "Using buffer" ? "warn" : res === "Within target" ? "good" : "idle";
+
+/* ------------------------------------------------------------------ overview */
+function renderOverview() {
+  const R = state.rules, results = state.scenarios.map(sc => calc(sc, R));
+  const ceil = ceiling(R);
+  const safe = ceil <= R.budgetMax / 100;
+  document.getElementById("ov-answer").innerHTML = `
+    <p class="eyebrow">The short answer</p>
+    <p class="big">${safe ? "The plan's bonuses cannot break the company." : "Warning: the plan's bonuses can exceed the budget."}</p>
+    <p>However deep a team grows, the bonuses can never pay more than <b>${pct(ceil, 0)}</b> of sales: each sale pays Level Bonus to at most 3 people above the seller (${(() => { const t = R.tiers[R.tiers.length - 1]; return `${t.r[0]}% + ${t.r[1]}% + ${t.r[2]}%`; })()} if all are ${esc(R.tiers[R.tiers.length - 1].name)}), and the three pools are fixed slices of company sales that are shared out, never multiplied. The budget for paying reps is <b>${pct(R.budgetMax / 100, 0)}</b> of sales.</p>
+    <div class="risks">
+      <div class="risk"><b>Risk 1: member discounts.</b> Package discounts (up to ${Math.max(...R.packages.map(p => p.disc))}%) come on top of the bonuses. If most reps hold the top package, the total passes the budget (Scenario 5).</div>
+      <div class="risk"><b>Risk 2: low sales.</b> Fixed costs are ${money(R.costs.fixedYear / 12)} a month. Below the break-even sales shown for each scenario, the company loses money even at a safe payout rate.</div>
+    </div>`;
+  const head = `<thead><tr><th>Scenario</th><th class="n">Reps</th><th class="n">Company sales</th><th class="n">Paid to reps</th><th class="n">% of sales</th><th>Result</th><th class="n">Company profit</th><th class="n">Break-even sales / month</th></tr></thead>`;
+  const body = results.map((r, i) => `<tr class="clickable" data-open="${i}"><td><b>${esc(state.scenarios[i].short)}</b><div class="note">${esc(state.scenarios[i].title)}</div></td>
+    <td class="n">${r.people}</td><td class="n">${money(r.sales)}</td><td class="n">${money(r.paid)}</td><td class="n">${pct(r.share)}</td>
+    <td><span class="pill ${pillClass(r.result)}">${esc(r.result)}</span></td>
+    <td class="n ${r.profit < 0 ? "neg" : ""}">${money(r.profit)}</td><td class="n">${money(r.breakEven)}</td></tr>`).join("");
+  const sumTable = document.getElementById("ov-summary");
+  sumTable.innerHTML = head + "<tbody>" + body + "</tbody>";
+  sumTable.querySelectorAll("tr[data-open]").forEach(tr => tr.addEventListener("click", () => { location.hash = "s" + (Number(tr.dataset.open) + 1); }));
+  const qs = [
+    ["Does the payout break the company?", "Answer above, and the Result column: green within the 40% target, amber using the 5% buffer, red over the 45% maximum."],
+    ["One complete example that covers the unlimited group in depth", "Scenario 1 (8 levels) and Scenario 2 (12 levels). Open one and read the tree: every level counts in team sales, each rep earns Level Bonus on 3 levels only."],
+    ["Each scenario, one calculation, to see if the payout is over the limit", "Every scenario is one full calculation with its own result. Edit any team or rule and it recalculates instantly."]];
+  document.getElementById("ov-questions").innerHTML = qs.map(([a, b]) => `<div class="q"><p class="ask">${esc(a)}</p><p class="muted">${esc(b)}</p></div>`).join("");
+}
+
+/* ------------------------------------------------------------------ scenario */
+function renderScenario() {
+  const R = state.rules, sc = state.scenarios[ui.scen], res = calc(sc, R);
+  document.getElementById("sc-chips").innerHTML = state.scenarios.map((s, i) =>
+    `<button type="button" class="chip" aria-pressed="${i === ui.scen}" data-sc="${i}">${esc(s.short)}</button>`).join("");
+  document.querySelectorAll("#sc-chips .chip").forEach(b => b.addEventListener("click", () => { location.hash = "s" + (Number(b.dataset.sc) + 1); }));
+  document.getElementById("sc-eyebrow").textContent = sc.eyebrow;
+  document.getElementById("sc-title").textContent = sc.title;
+  document.getElementById("sc-desc").textContent = sc.desc;
+
+  document.getElementById("sc-kpis").innerHTML = [
+    ["Company sales", money(res.sales), `${num(res.sales / R.pvValue)} PV this month`],
+    ["Paid to reps", money(res.paid), `${pct(res.share)} of sales`],
+    ["Result", `<span class="pill ${pillClass(res.result)}">${esc(res.result)}</span>`, `target ${pct(res.target, 0)}, maximum ${pct(res.max, 0)}`],
+    ["Company profit", `<span class="${res.profit < 0 ? "neg" : ""}">${money(res.profit)}</span>`, `${res.sales ? pct(res.profit / res.sales) : "-"} of sales`],
+    ["Break-even sales", money(res.breakEven), "a month, to cover fixed costs"]]
+    .map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  const scaleMax = Math.max(0.6, Math.ceil((res.share + 0.05) * 10) / 10);
+  const fillColor = res.result === "OVER MAX" ? "var(--bad)" : res.result === "Using buffer" ? "var(--warn)" : "var(--good)";
+  const at = (v) => Math.min(100, v / scaleMax * 100);
+  document.getElementById("sc-budget").innerHTML = `
+    <div class="btnrow" style="justify-content:space-between"><h3>Paid to reps against the budget</h3><span class="num">${pct(res.share)} of sales</span></div>
+    <div class="bar" role="img" aria-label="Paid to reps ${pct(res.share)} of sales; target ${pct(res.target, 0)}; maximum ${pct(res.max, 0)}">
+      <div class="fill" style="width:${at(res.share)}%;background:${fillColor}"></div>
+      <div class="mark" style="left:${at(res.target)}%"></div><div class="mark" style="left:${at(res.max)}%"></div></div>
+    <div class="scale"><span style="left:${at(res.target)}%">target ${pct(res.target, 0)}</span><span style="left:${at(res.max)}%">max ${pct(res.max, 0)}</span></div>`;
+
+  const lines = [
+    ["Level Bonus (3 levels per rep)", res.level], ["Special Bonus pool", res.specialPaid], ["Generation Bonus pool", res.genPaid],
+    ["Sales Master pools", res.masterPaid], ["Member retail discounts", res.disc], ["Total paid to reps", res.paid, true],
+    ["Card, operating and product costs", res.costs], ["Fixed costs this month", res.fixed], ["Company profit", res.profit, true],
+    ["Pool money not paid out (nobody qualified)", res.kept]];
+  document.getElementById("sc-breakdown").innerHTML = lines.map(([l, v, strong]) =>
+    `<div class="r ${strong ? "strong" : ""}"><span>${esc(l)}</span><span class="num ${v < 0 ? "neg" : ""}">${money(v)}</span></div>`).join("");
+
+  const o = sc.outside;
+  const fields = [["sales", "Sales outside this team (S$)"], ["sp", "Special shares outside"], ["gen", "Generation shares outside"],
+    ["ss", "Sales Stars outside"], ["dia", "Diamonds outside"], ["crown", "Crown Diamonds outside"], ["royal", "Royal Crown Diamonds outside"]];
+  document.getElementById("sc-outside").innerHTML = fields.map(([k, l]) =>
+    `<label class="field">${l}<input type="number" min="0" step="any" id="out-${k}" data-out="${k}" value="${Number(o[k]) || 0}"></label>`).join("");
+  document.querySelectorAll("#sc-outside input").forEach(inp => inp.addEventListener("change", () => {
+    sc.outside[inp.dataset.out] = Number(inp.value) || 0; save(); renderAll();
+  }));
+
+  if (!ui.person || !res.rows.has(ui.person)) ui.person = res.roots[0] || null;
+  renderTree(res);
+  renderPerson(res);
+  renderTable(sc, res);
+}
+
+function renderPerson(res) {
+  const R = state.rules, el = document.getElementById("sc-person"), r = ui.person && res.rows.get(ui.person);
+  if (!r) { el.innerHTML = `<p class="muted">Add a rep to see the calculation.</p>`; return; }
+  const next = R.tiers.find(t => TIERS.indexOf(t.name) > TIERS.indexOf(r.tier));
+  const tierWhy = r.tier === "None"
+    ? `Needs at least ${num(R.tiers[0].pv)} PV of own sales for ${R.tiers[0].name}.`
+    : `${r.tier} needs ${num(R.tiers.find(t => t.name === r.tier).pv)} PV own + ${num(R.tiers.find(t => t.name === r.tier).gv)} GV team; has ${pvf(r.pv)} + ${pvf(r.gv)}.` +
+      (next ? ` ${next.name} needs ${num(next.pv)} + ${num(next.gv)}.` : "");
+  const lvWhy = r.tier === "None" ? "No tier, so no Level Bonus." :
+    [0, 1, 2].map(i => `L${i + 1} ${pvf(r.lv[i])} PV × ${r.rates[i]}%`).join(" + ") + ` = ${pvf(r.levelPV)} PV × ${money(R.pvValue)}`;
+  const legsTxt = r.legs.length ? r.legs.slice().sort((a, b) => b - a).map(pvf).join(", ") : "no legs";
+  const spWhy = r.spShares
+    ? `${r.legCounts[0]} legs at ${num(R.special[0].gv)}+ GV → ${r.spShares} share${r.spShares > 1 ? "s" : ""} of ${num(res.spTotal)}: ${money(res.sales)} × ${R.pools.special}% × ${r.spShares}/${num(res.spTotal)}`
+    : (TIERS.indexOf(r.tier) < 1 ? `Needs Silver or above.` : `Needs ${R.special[0].legs} legs with ${num(R.special[0].gv)}+ GV; leg totals: ${legsTxt}.`);
+  const genWhy = r.genShares
+    ? `${r.genShares} share${r.genShares > 1 ? "s" : ""} of ${num(res.genTotal)}: ${money(res.sales)} × ${R.pools.generation}% × ${r.genShares}/${num(res.genTotal)}`
+    : (TIERS.indexOf(r.tier) < 2 ? "Needs Gold or Platinum." : `Gold needs ${num(R.gen.gold.pv)} own + ${num(R.gen.gold.gv)} team; has ${pvf(r.pv)} + ${pvf(r.gv)}.`);
+  let smWhy;
+  if (r.rank) smWhy = `${r.rank}: ${money(res.sales)} × ${res.rankPct[r.rank]}% shared by ${res.rankCount[r.rank]} ${r.rank}${res.rankCount[r.rank] > 1 ? "s" : ""}.`;
+  else if (TIERS.indexOf(r.tier) < 2) smWhy = "Needs Gold or Platinum.";
+  else smWhy = `Sales Star needs ${R.legsNeeded} legs of ${num(R.starLegGV)}+ GV; leg totals: ${legsTxt}.`;
+  const steps = [
+    ["Own sales", `${esc(r.name || r.id)} · ${r.depth === 0 ? "top of the team" : "level " + r.depth + " below the top"} · sponsored by ${esc(r.sponsor || "nobody")}`, `${pvf(r.pv)} PV`],
+    ["Team sales", `Everyone below: ${num(r.descCount)} rep${r.descCount === 1 ? "" : "s"} in ${r.kids.length} leg${r.kids.length === 1 ? "" : "s"}, ${r.maxDown} level${r.maxDown === 1 ? "" : "s"} deep.`, `${pvf(r.gv)} GV`],
+    ["Tier", esc(tierWhy), tierName(r.tier)],
+    ["Level Bonus", esc(lvWhy), money(r.level)],
+    ["Special Bonus", esc(spWhy), money(r.special)],
+    ["Generation Bonus", esc(genWhy), money(r.generation)],
+    ["Sales Master", esc(smWhy), money(r.master)],
+    ["Member discount", r.discPct ? esc(`${r.pkg}: ${r.discPct}% off own sales of ${money(r.pv * R.pvValue)}.`) : "No package chosen.", money(r.disc)],
+    ["Total this month", "Bonuses plus member discount.", money(r.total)]];
+  el.innerHTML = `<div><h3>${esc(r.id)}${r.name ? " · " + esc(r.name) : ""}</h3>${r.error ? `<p class="flag">${esc(r.error)}</p>` : ""}</div>` +
+    steps.map(([k, why, amt], i) => `<div class="step"${i === steps.length - 1 ? ' style="font-weight:700"' : ""}><span class="k">${k}</span><span class="why">${why}</span><span class="amt">${amt}</span></div>`).join("");
+}
+
+/* tree: leaves left to right, parents centred over their children; very wide teams are grouped from a depth down */
+function renderTree(res) {
+  const svg = document.getElementById("sc-tree");
+  const rows = res.rows, BW = 156, BH = 60, XS = 172, YS = 88, LEFT = 64, TOP = 16, MAXCOLS = 24;
+  const kidsOf = (id) => (rows.get(id) ? rows.get(id).kids : []);
+  const visible = (c) => [...rows.values()].filter(r => r.depth !== undefined && r.depth < c);
+  const columns = (c) => visible(c).filter(r => !kidsOf(r.id).some(k => rows.get(k).depth < c)).length;
+  let collapse = Infinity;
+  if (columns(Infinity) > MAXCOLS) {
+    collapse = 1;
+    for (let c = res.maxDepth; c >= 1; c--) if (columns(c) <= MAXCOLS) { collapse = c; break; }
+  }
+  const shown = new Set(visible(collapse).map(r => r.id));
+  const x = new Map(); let nextX = 0;
+  const place = (id) => {
+    const ch = kidsOf(id).filter(k => shown.has(k));
+    if (!ch.length) { x.set(id, nextX); nextX += 1; return; }
+    ch.forEach(place);
+    x.set(id, (x.get(ch[0]) + x.get(ch[ch.length - 1])) / 2);
+  };
+  res.roots.filter(id => shown.has(id)).forEach(place);
+  const groups = new Map();
+  if (collapse !== Infinity) {
+    for (const r of rows.values()) {
+      if (r.depth === undefined || r.depth < collapse) continue;
+      let a = r.id; while (rows.get(a).depth > collapse - 1) a = rows.get(a).sponsor;
+      const key = a + "|" + r.depth;
+      if (!groups.has(key)) groups.set(key, { anc: a, depth: r.depth, members: [] });
+      groups.get(key).members.push(r);
+    }
+  }
+  const maxD = res.maxDepth, cols = Math.max(nextX, 3);
+  const W = LEFT + cols * XS + 8, H = TOP + (maxD + 1) * YS;
+  const cx = (id) => LEFT + x.get(id) * XS + XS / 2, cy = (d) => TOP + d * YS + YS / 2;
+  let out = "";
+  if (maxD >= 1) out += `<rect x="4" y="${TOP + YS - 4}" width="${W - 8}" height="${Math.min(3, maxD) * YS}" rx="10" fill="var(--band-paid)"/>`;
+  if (maxD >= 4) out += `<rect x="4" y="${TOP + 4 * YS - 4}" width="${W - 8}" height="${(maxD - 3) * YS}" rx="10" fill="var(--band-deep)"/>`;
+  for (let d = 0; d <= maxD; d++) out += `<text class="lvl ${d >= 1 && d <= 3 ? "paid" : ""}" x="14" y="${cy(d) + 4}">${d === 0 ? "Top" : "L" + d}</text>`;
+  const link = (x1, d1, x2, d2) => { const y1 = cy(d1) + BH / 2, y2 = cy(d2) - BH / 2, ym = (y1 + y2) / 2;
+    return `<path d="M${x1} ${y1}V${ym}H${x2}V${y2}" fill="none" stroke="var(--link)" stroke-width="1.2"/>`; };
+  for (const id of shown) for (const k of kidsOf(id)) if (shown.has(k)) out += link(cx(id), rows.get(id).depth, cx(k), rows.get(k).depth);
+  for (const g of groups.values()) out += link(cx(g.anc), g.depth - 1, cx(g.anc), g.depth);
+  const box = (X, d, cls, l1, l2, l3, id) => `<g class="node t-${cls}${id && id === ui.person ? " sel" : ""}"${id ? ` data-id="${esc(id)}" tabindex="0"` : ""}>
+    <rect x="${X - BW / 2}" y="${cy(d) - BH / 2}" width="${BW}" height="${BH}" rx="9"/>
+    <text class="t1" x="${X}" y="${cy(d) - 10}" text-anchor="middle">${esc(l1)}</text>
+    <text class="t2" x="${X}" y="${cy(d) + 7}" text-anchor="middle">${esc(l2)}</text>
+    <text class="t3" x="${X}" y="${cy(d) + 23}" text-anchor="middle">${esc(l3)}</text></g>`;
+  const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+  for (const id of shown) {
+    const r = rows.get(id);
+    const l1 = clip(`${id} · ${r.rank || tierName(r.tier)}`, 22);
+    const l2 = r.rank ? `${r.tier} · ${pvf(r.pv)} PV` : `${pvf(r.pv)} PV own sales`;
+    out += box(cx(id), r.depth, r.tier, l1, l2, money(r.total), id);
+  }
+  for (const g of groups.values()) {
+    const tiers = new Set(g.members.map(m => m.tier)), t = tiers.size === 1 ? g.members[0].tier : "None";
+    const pays = g.members.map(m => m.total).sort((a, b) => a - b), pvs = new Set(g.members.map(m => m.pv));
+    out += box(cx(g.anc), g.depth, t, `${g.members.length} reps · ${tiers.size === 1 ? tierName(t) : "mixed"}`,
+      pvs.size === 1 ? `${pvf(g.members[0].pv)} PV each` : "mixed PV",
+      pays[0] === pays[pays.length - 1] ? `${money(pays[0])} each` : `${money(pays[0])}–${money(pays[pays.length - 1])}`, null);
+  }
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.innerHTML = out;
+  svg.querySelectorAll(".node[data-id]").forEach(n => {
+    const pick = () => { ui.person = n.dataset.id; renderTree(res); renderPerson(res); highlightRow(); };
+    n.addEventListener("click", pick);
+    n.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+  });
+  document.getElementById("sc-legend").innerHTML = ["Bronze", "Silver", "Gold", "Platinum", "None"].map(t =>
+    `<span><i style="background:var(--t-${t === "None" ? "none" : t === "Platinum" ? "plat" : t.toLowerCase()});border-color:var(--t-${t === "None" ? "none" : t === "Platinum" ? "plat" : t.toLowerCase()}-e)"></i>${tierName(t)}</span>`).join("") +
+    `<span><i style="background:var(--band-paid);border-color:var(--band-paid)"></i>Top rep's 3 paid levels</span><span><i style="background:var(--band-deep);border-color:var(--band-deep)"></i>Deeper levels: count in team sales</span>`;
+  document.getElementById("sc-treenote").textContent = collapse !== Infinity
+    ? `This team is wide, so from level ${collapse} down reps are grouped into one box per leader. Every rep is listed in the table below.`
+    : `${res.people} reps, ${res.maxDepth} level${res.maxDepth === 1 ? "" : "s"} below the top. Scroll the picture if it is wider than the screen.`;
+}
+
+function renderTable(sc, res) {
+  const R = state.rules, t = document.getElementById("sc-table");
+  document.getElementById("id-list").innerHTML = sc.people.map(p => `<option value="${esc(p.id)}"></option>`).join("");
+  const pk = ["", ...R.packages.map(p => p.name)];
+  const head = `<thead><tr><th>Rep ID</th><th>Name</th><th>Sponsor ID</th><th class="n">Own sales (PV)</th><th>Package</th>
+    <th class="n">Level</th><th class="n">Team sales (GV)</th><th>Tier</th><th class="n">Level Bonus</th><th class="n">Special</th>
+    <th class="n">Generation</th><th>Sales Master</th><th class="n">Discount</th><th class="n">Total</th><th>Check</th><th></th></tr></thead>`;
+  const body = sc.people.map((p, i) => {
+    const r = res.rows.get(String(p.id || "").trim());
+    const c = (v) => (r ? v : "");
+    return `<tr data-row="${i}" class="${r && r.id === ui.person ? "sel-row" : ""}">
+      <td><input class="id" id="r${i}-id" data-f="id" value="${esc(p.id)}" aria-label="Rep ID"></td>
+      <td><input class="name" id="r${i}-name" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
+      <td><input class="sp" id="r${i}-sp" data-f="sponsor" list="id-list" value="${esc(p.sponsor)}" aria-label="Sponsor ID"></td>
+      <td><input class="pv" id="r${i}-pv" data-f="pv" type="number" min="0" step="any" value="${Number(p.pv) || 0}" aria-label="Own sales PV"></td>
+      <td><select id="r${i}-pkg" data-f="pkg" aria-label="Package">${pk.map(n => `<option value="${esc(n)}"${n === (p.pkg || "") ? " selected" : ""}>${n ? esc(n) : "None"}</option>`).join("")}</select></td>
+      <td class="n">${c(r ? r.depth ?? "" : "")}</td><td class="n">${c(r ? pvf(r.gv) : "")}</td><td>${c(r ? tierName(r.tier) : "")}</td>
+      <td class="n">${c(r ? money(r.level) : "")}</td><td class="n">${c(r ? money(r.special) : "")}</td><td class="n">${c(r ? money(r.generation) : "")}</td>
+      <td>${c(r ? (r.rank ? esc(r.rank) + " · " + money(r.master) : "-") : "")}</td><td class="n">${c(r ? money(r.disc) : "")}</td>
+      <td class="n"><b>${c(r ? money(r.total) : "")}</b></td><td>${r && r.error ? `<span class="flag">${esc(r.error)}</span>` : r ? "OK" : ""}</td>
+      <td><button class="btn small" type="button" data-del="${i}" aria-label="Remove ${esc(p.id)}">Remove</button></td></tr>`;
+  }).join("");
+  const tot = `<tr class="total"><td colspan="8">Team total</td><td class="n">${money(res.level)}</td><td class="n">${money(sumRows(res, "special"))}</td>
+    <td class="n">${money(sumRows(res, "generation"))}</td><td>${money(sumRows(res, "master"))}</td><td class="n">${money(res.disc)}</td>
+    <td class="n">${money(sumRows(res, "total"))}</td><td colspan="2"></td></tr>`;
+  t.innerHTML = head + "<tbody>" + body + tot + "</tbody>";
+  t.querySelectorAll("input[data-f], select[data-f]").forEach(inp => inp.addEventListener("change", () => {
+    const i = Number(inp.closest("tr").dataset.row), f = inp.dataset.f, p = sc.people[i];
+    if (f === "id") {
+      const old = p.id, nv = inp.value.trim();
+      sc.people.forEach(q => { if (q.sponsor === old && old) q.sponsor = nv; });
+      if (ui.person === old) ui.person = nv;
+      p.id = nv;
+    } else if (f === "pv") p.pv = Number(inp.value) || 0;
+    else p[f] = f === "sponsor" ? inp.value.trim() : inp.value;
+    save(); renderAll();
+  }));
+  t.querySelectorAll("tr[data-row]").forEach(tr => tr.addEventListener("click", (e) => {
+    if (e.target.closest("input,select,button")) return;
+    const p = sc.people[Number(tr.dataset.row)];
+    if (p && p.id) { ui.person = String(p.id).trim(); renderTree(res); renderPerson(res); highlightRow(); }
+  }));
+  t.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => {
+    const i = Number(b.dataset.del), gone = sc.people[i];
+    sc.people.forEach(q => { if (q.sponsor === gone.id) q.sponsor = gone.sponsor || ""; });
+    sc.people.splice(i, 1); save(); renderAll();
+  }));
+  highlightRow();
+}
+const sumRows = (res, f) => [...res.rows.values()].reduce((a, r) => a + r[f], 0);
+function highlightRow() {
+  document.querySelectorAll("#sc-table tr[data-row]").forEach(tr => {
+    const p = state.scenarios[ui.scen].people[Number(tr.dataset.row)];
+    tr.style.outline = p && String(p.id).trim() === ui.person ? "2px solid var(--sel)" : "";
+  });
+}
+
+/* ------------------------------------------------------------------ rules form */
+function renderRules() {
+  const R = state.rules, el = document.getElementById("rules");
+  const inp = (path, v, cls = "") => `<input type="${cls === "txt" ? "text" : "number"}" step="any" class="${cls}" data-path="${path}" id="rule-${path.replace(/\./g, "-")}" value="${esc(v)}">`;
+  const tiers = `<div class="card"><h2>Tiers and Level Bonus rates</h2><p class="muted">A rep's tier is set by the month's own sales and team sales; it sets the rate paid on each of the 3 levels below.</p>
+    <div class="tablewrap"><table><thead><tr><th>Tier</th><th class="n">Own sales (PV)</th><th class="n">Team sales (GV)</th><th class="n">Level 1 %</th><th class="n">Level 2 %</th><th class="n">Level 3 %</th></tr></thead><tbody>
+    ${R.tiers.map((t, i) => `<tr><td><b>${esc(t.name)}</b></td><td class="n">${inp(`tiers.${i}.pv`, t.pv)}</td><td class="n">${inp(`tiers.${i}.gv`, t.gv)}</td>
+      ${[0, 1, 2].map(k => `<td class="n">${inp(`tiers.${i}.r.${k}`, t.r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <label class="field">Value of 1 PV (S$)${inp("pvValue", R.pvValue)}</label></div>`;
+  const pools = `<div class="card"><h2>Bonus pools (% of company sales)</h2><p class="muted">Fixed slices of the month's company sales, shared out by shares or by rank.</p>
+    <div class="form">${[["special", "Special Bonus pool"], ["generation", "Generation Bonus pool"], ["star", "Sales Star pool"], ["diamond", "Diamond pool"], ["crown", "Crown Diamond pool"], ["royal", "Royal Crown Diamond pool"]]
+      .map(([k, l]) => `<label class="field">${l}${inp("pools." + k, R.pools[k])}</label>`).join("")}</div></div>`;
+  const special = `<div class="card"><h2>Special Bonus shares</h2><p class="muted">Silver and above. Each step needs the legs of the steps before it plus its own (3, then 5, then 7 legs).</p>
+    <div class="tablewrap"><table><thead><tr><th>Step</th><th class="n">Extra legs</th><th class="n">Each leg's GV at least</th><th class="n">Total shares</th></tr></thead><tbody>
+    ${R.special.map((s, i) => `<tr><td>Step ${i + 1}</td><td class="n">${inp(`special.${i}.legs`, s.legs)}</td><td class="n">${inp(`special.${i}.gv`, s.gv)}</td><td class="n">${inp(`special.${i}.shares`, s.shares)}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const gen = `<div class="card"><h2>Generation Bonus shares</h2><p class="muted">Worked on the month's figures. Platinum gets the maximum shares.</p>
+    <div class="tablewrap"><table><thead><tr><th>Tier</th><th class="n">Own sales (PV)</th><th class="n">Team sales (GV)</th><th class="n">Shares</th></tr></thead><tbody>
+    ${["gold", "platinum"].map(k => `<tr><td>${k === "gold" ? "Gold" : "Platinum"}</td><td class="n">${inp(`gen.${k}.pv`, R.gen[k].pv)}</td><td class="n">${inp(`gen.${k}.gv`, R.gen[k].gv)}</td><td class="n">${inp(`gen.${k}.shares`, R.gen[k].shares)}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const ranks = `<div class="card"><h2>Sales Master ranks</h2><p class="muted">Sales Star: Gold or Platinum with legs of enough GV. Diamond, Crown Diamond, Royal Crown Diamond: Platinum with legs that each contain the rank below. Paid from the highest rank's pool only.</p>
+    <div class="form"><label class="field">Sales Star: each leg's GV at least${inp("starLegGV", R.starLegGV)}</label><label class="field">Legs needed for every rank${inp("legsNeeded", R.legsNeeded)}</label></div></div>`;
+  const budget = `<div class="card"><h2>Budget and company costs</h2><p class="muted">From the client's costing slide. Product cost uses the safer end of the 20-25% range.</p>
+    <div class="form"><label class="field">Maximum paid to reps (% of sales)${inp("budgetMax", R.budgetMax)}</label><label class="field">Buffer for extra leader commission (%)${inp("buffer", R.buffer)}</label>
+    <label class="field">Card / NETS / PayNow charges (%)${inp("costs.card", R.costs.card)}</label><label class="field">Other operating cost (%)${inp("costs.operating", R.costs.operating)}</label>
+    <label class="field">Product cost per bottle (%)${inp("costs.product", R.costs.product)}</label><label class="field">Fixed costs per year (S$)${inp("costs.fixedYear", R.costs.fixedYear)}</label></div>
+    <p class="note">Target paid to reps = maximum − buffer = ${pct((R.budgetMax - R.buffer) / 100, 0)}. The plan's bonuses alone can never pass ${pct(ceiling(R), 0)} of sales.</p></div>`;
+  const CN = { "Product Member": "产品会员", "Junior Entrepreneur": "创业者", "Senior Entrepreneur": "资深创业", "Entrepreneur Partner": "创业合伙人" };
+  const pkgs = `<div class="card"><h2>Membership packages</h2><p class="muted">From the client's costing slide, not the commission plan. A rep gets a package by paying its one-time joining fee; the bigger the package, the bigger the retail discount. The calculator costs the discount on each rep's own sales and counts it as money paid to reps. Joining fees are for reference only.</p>
+    <div class="tablewrap"><table><thead><tr><th>Package</th><th class="n">Joining fee (S$)</th><th class="n">Retail discount %</th></tr></thead><tbody>
+    ${R.packages.map((p, i) => `<tr><td>${esc(p.name)}${CN[p.name] ? ` <span class="muted">${CN[p.name]}</span>` : ""}</td><td class="n">${inp(`packages.${i}.fee`, p.fee)}</td><td class="n">${inp(`packages.${i}.disc`, p.disc)}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const confirm = `<div class="card"><h2>Points to confirm with Nature 360</h2><p class="muted">Where the plan document or costing slide is unclear, the calculator makes the choice below. Change the rules above if the answer differs.</p>
+    <ul class="note" style="margin:0;padding-left:18px;display:grid;gap:8px">
+      <li><b>Tier by targets only.</b> Example 4 and Other Example 3 promote a rep for having a Gold direct or 5 Bronze directs (S$2,715 and S$504). The tier table has no such rule, so here those reps stay Bronze (S$1,860 and S$405).</li>
+      <li><b>Silver team sales 9,000 GV</b> (tier table). Example 1's text says 7,200.</li>
+      <li><b>Retail discount</b> is read as a discount on the rep's own orders. The slide doesn't say what the joining fee includes.</li>
+      <li><b>“Referral 30%, team 15%, leader 5%”</b> on the costing slide is not in the commission plan and is not counted here.</li>
+      <li><b>Budget.</b> Costs are 55% of sales (3.5% + 26.5% + 25%), so paying reps 45% leaves nothing for the S$${Math.round(R.costs.fixedYear).toLocaleString("en-US")} a year of fixed costs. The plan's own profit table assumes 85% total costs, which leaves room for about 30% to reps.</li>
+    </ul></div>`;
+  el.innerHTML = tiers + pools + special + gen + ranks + budget + pkgs + confirm;
+  el.querySelectorAll("input[data-path]").forEach(i => i.addEventListener("change", () => {
+    const parts = i.dataset.path.split("."); let o = state.rules;
+    for (let k = 0; k < parts.length - 1; k++) o = o[parts[k]];
+    o[parts[parts.length - 1]] = Number(i.value) || 0;
+    save(); renderAll();
+  }));
+}
+
+/* ------------------------------------------------------------------ routing */
+function route() {
+  const h = (location.hash || "#overview").slice(1);
+  let view = "overview";
+  if (/^s[1-5]$/.test(h)) { view = "scenario"; const n = Number(h.slice(1)) - 1; if (n !== ui.scen) { ui.scen = n; ui.person = null; } }
+  else if (h === "rules") view = "rules";
+  for (const v of ["overview", "scenario", "rules"]) document.getElementById("view-" + v).hidden = v !== view;
+  document.querySelectorAll(".nav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === view ? "page" : "false"));
+  document.querySelector('.nav a[data-nav="scenario"]').setAttribute("href", "#s" + (ui.scen + 1));
+  ui.view = view;
+  renderAll();
+}
+function renderAll() {
+  if (ui.view === "overview") renderOverview();
+  else if (ui.view === "scenario") renderScenario();
+  else if (ui.view === "rules") renderRules();
+}
+document.getElementById("btn-add").addEventListener("click", () => {
+  const sc = state.scenarios[ui.scen], ids = new Set(sc.people.map(p => p.id));
+  let n = sc.people.length + 1, id = "R" + n; while (ids.has(id)) id = "R" + (++n);
+  const sponsor = ui.person || (sc.people[0] && sc.people[0].id) || "";
+  sc.people.push(rep(id, "New rep", sponsor, 0, "")); ui.person = id; save(); renderAll();
+});
+document.getElementById("btn-reset-sc").addEventListener("click", () => {
+  state.scenarios[ui.scen] = defaultScenarios()[ui.scen]; ui.person = null; save(); renderAll();
+});
+document.getElementById("btn-reset-all").addEventListener("click", () => {
+  state = { rules: clone(DEFAULT_RULES), scenarios: defaultScenarios() }; ui.person = null; save(); renderAll();
+});
+window.addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>
