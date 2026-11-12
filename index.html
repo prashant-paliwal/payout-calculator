@@ -307,22 +307,14 @@ function defaultScenarios() {
       outside: { ...none }, people: [rep("YOU", "You (example)", "", 1800, "Senior Entrepreneur"), rep("R1", "Rep 1 (example)", "YOU", 900, "Junior Entrepreneur"), rep("R2", "Rep 2 (example)", "R1", 400, "Product Member")] },
     { key: "s5", short: "5 · Stress + packages", title: "Stress test with every rep on the Partner package", eyebrow: "Scenario 5 · worst case",
       desc: "Scenario 3's team, but every rep holds the Entrepreneur Partner package (30% retail discount): the plan's bonuses plus the biggest member discount.",
-      outside: { ...none }, people: stress("Entrepreneur Partner") },
-    { key: "s6", short: "6 · New members", title: "A month with new members joining", eyebrow: "Scenario 6 · 8 reps, 7 joined this month",
-      desc: "One existing leader brings in 7 new members on different packages. Their joining fees are company income, and the referral commission on each fee (30% sponsor, 15% next up, 5% the one above) is paid to the reps above them.",
-      outside: { ...none }, people: [
-        rep("YOU", "You (existing leader)", "", 1800, "Senior Entrepreneur", false),
-        rep("A", "New member A", "YOU", 900, "Junior Entrepreneur", true), rep("B", "New member B", "YOU", 180, "Product Member", true),
-        rep("C", "New member C", "YOU", 2000, "Entrepreneur Partner", true),
-        rep("A1", "New member A1", "A", 180, "Product Member", true), rep("A2", "New member A2", "A", 600, "Junior Entrepreneur", true),
-        rep("C1", "New member C1", "C", 1000, "Senior Entrepreneur", true), rep("C11", "New member C11", "C1", 180, "Product Member", true)] }];
+      outside: { ...none }, people: stress("Entrepreneur Partner") }];
 }
 
 /* ------------------------------------------------------------------ state */
 const KEY = "n360-commission-calc-v1";
 const clone = (o) => JSON.parse(JSON.stringify(o));
 function loadState() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { const oldV = s.rules.v || 1; s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); s.rules.costs = Object.assign(clone(DEFAULT_RULES.costs), s.rules.costs); if (oldV < 2) { s.rules.costs.fixedYear = 0; s.rules.v = 2; } const d = defaultScenarios(); while (s.scenarios.length < d.length) s.scenarios.push(d[s.scenarios.length]); return s; } } } catch (e) { /* storage unavailable */ }
+  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { const oldV = s.rules.v || 1; s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); s.rules.costs = Object.assign(clone(DEFAULT_RULES.costs), s.rules.costs); if (oldV < 2) { s.rules.costs.fixedYear = 0; s.rules.v = 2; } const d = defaultScenarios(); s.scenarios = s.scenarios.filter(x => d.some(y => y.key === x.key)); while (s.scenarios.length < d.length) s.scenarios.push(d[s.scenarios.length]); return s; } } } catch (e) { /* storage unavailable */ }
   return { rules: clone(DEFAULT_RULES), scenarios: defaultScenarios() };
 }
 let state = loadState();
