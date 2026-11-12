@@ -465,7 +465,7 @@ function calc(sc, R) {
   const profit = revenue - paid - costs - fixed;
   const margin = revenue > 0 ? (revenue - paid - costs) / revenue : 1 - costPct;
   const breakEven = margin <= 0 ? "Never" : fixed > 0 ? fixed / margin : "—";
-  const profitTest = revenue === 0 ? "Enter sales" : profit >= -0.005 ? "Profit" : "Loss";
+  const profitTest = revenue === 0 ? "Enter sales" : Math.abs(profit) < 0.005 ? "Break-even" : profit > 0 ? "Profit" : "Loss";
   const poolPct = (R.pools.special + R.pools.generation + R.pools.star + R.pools.diamond + R.pools.crown + R.pools.royal) / 100;
   return { rows, roots, kids, errors, sales, revenue, feeIncome, feeCost, newMembers, referral, level, specialPaid, genPaid, masterPaid, disc,
     bonusesRaw, paidRaw, capCut, factor, capPct, paid, share, target, max, result, profitTest,
@@ -478,7 +478,7 @@ function ceiling(R) {
 }
 const pillClass = (res) => res === "OVER MAX" ? "bad" : res === "Using buffer" ? "warn" : res === "Within target" ? "good" : "idle";
 
-const profitClass = (t) => t === "Profit" ? "good" : t === "Loss" ? "bad" : "idle";
+const profitClass = (t) => t === "Profit" ? "good" : t === "Loss" ? "bad" : t === "Break-even" ? "warn" : "idle";
 
 /* why a scenario loses money, what controls it, and how to test any case */
 function renderControl(results) {
@@ -508,12 +508,12 @@ function renderControl(results) {
       ["Package discounts limited to 20%", { cap: "off", packages: limitDisc(20) }],
       [`Discounts limited to 20% + cap at ${pct((R.budgetMax - R.buffer) / 100, 0)}`, { cap: "target", packages: limitDisc(20) }]];
     const rows = variants.map(([label, patch]) => { const v = calc(sc5, Object.assign(clone(R), patch));
-      return `<tr><td>${esc(label)}</td><td class="n">${money(v.paid)}</td><td class="n">${pct(v.share)}</td>
+      return `<tr><td>${esc(label)}</td><td class="n">${pct(v.factor, 1)}</td><td class="n">${money(v.paid)}</td><td class="n">${pct(v.share)}</td>
         <td><span class="pill ${pillClass(v.result)}">${esc(v.result)}</span></td><td><span class="pill ${profitClass(v.profitTest)}">${esc(v.profitTest)}</span></td>
         <td class="n ${v.profit < 0 ? "neg" : ""}">${money(v.profit)}</td></tr>`; }).join("");
     ctrl = `<h3>Ways to control an over-maximum month, worked live on Scenario 5's team</h3>
-      <div class="tablewrap"><table><thead><tr><th>Control</th><th class="n">Paid to reps</th><th class="n">% of income</th><th>Payout test</th><th>Profit test</th><th class="n">Company profit</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="note"><b>Payout cap:</b> if a month's total would pass the cap, every bonus is cut by the same percentage so the total lands exactly on the cap. It is the standard safety valve, and you can switch it on in Plan rules. <b>Discounts</b> are given at checkout, so they cannot be cut afterwards; control them by the package design. A cap at ${pct(R.budgetMax / 100, 0)} leaves no profit at all: running costs (${pct(costPct, 1)}) plus ${pct(R.budgetMax / 100, 0)} use up every dollar of sales${fixed > 0 ? ", so fixed costs become a loss" : ""}.</p>`;
+      <div class="tablewrap"><table><thead><tr><th>Control</th><th class="n">Reps get of their bonuses</th><th class="n">Paid to reps</th><th class="n">% of income</th><th>Payout test</th><th>Profit test</th><th class="n">Company profit</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note"><b>Payout cap:</b> if a month's total would pass the cap, every bonus is cut by the same percentage so the total lands exactly on the cap. It is the standard safety valve, and you can switch it on in Plan rules, but the cut comes out of reps' bonuses (first column), so it is a safety net, not a substitute for a sound plan. <b>Discounts</b> are given at checkout, so they cannot be cut afterwards; control them by the package design. A cap at ${pct(R.budgetMax / 100, 0)} leaves no profit at all: running costs (${pct(costPct, 1)}) plus ${pct(R.budgetMax / 100, 0)} use up every dollar of sales${fixed > 0 ? ", so fixed costs become a loss" : ""}.</p>`;
   }
   const bands = [20, 25, 30, 35, 40, 45].map(p => { const m = 1 - costPct - p / 100; return `<tr><td class="n">${p}%</td><td class="n">${m > 0 ? money(refFixed / m) : "Never"}</td><td class="n">${m > 0 ? pct(m, 1) : "0%"}</td></tr>`; }).join("");
   el.innerHTML = `<h2>Scenarios 4 and 5 explained, and how to control an over-maximum month</h2>
@@ -525,7 +525,7 @@ function renderControl(results) {
     <ol class="steps-list">
       <li><b>Enter the team.</b> Open Scenario 4 · Your team (or any scenario) and list each rep: who sponsored them, their own sales in PV and their package. Tick <i>New this month</i> for anyone who joined: their joining fee counts as income and pays referral commission to the 3 reps above them.</li>
       <li><b>Read the Payout test.</b> Green <i>Within target</i> is ${pct((R.budgetMax - R.buffer) / 100, 0)} or less, amber <i>Using buffer</i> is up to ${pct(R.budgetMax / 100, 0)}, red <i>OVER MAX</i> is above it.</li>
-      <li><b>Read the Profit test.</b> <i>Profit</i> means income covers the payout, running costs and fixed costs. If it says <i>Loss</i>, the break-even figure shows the sales needed.</li>
+      <li><b>Read the Profit test.</b> <i>Profit</i> means income covers the payout, running costs and fixed costs. If it says <i>Loss</i>, read Break-even sales: a figure is the sales needed each month; <i>Never</i> means the payout plus running costs is more than 100% of sales, so the payout itself must come down.</li>
       <li><b>A case is safe when both tests are green.</b> To make the Payout test impossible to fail, set the Payout cap in Plan rules.</li>
     </ol>`;
 }
@@ -538,7 +538,7 @@ function renderOverview() {
   document.getElementById("ov-answer").innerHTML = `
     <p class="eyebrow">The short answer</p>
     <p class="big">${safe ? "The plan's bonuses cannot break the company." : "Warning: the plan's bonuses can exceed the budget."}</p>
-    <p>However deep a team grows, the bonuses can never pay more than <b>${pct(ceil, 0)}</b> of sales: each sale pays Level Bonus to at most 3 people above the seller (${(() => { const t = R.tiers[R.tiers.length - 1]; return `${t.r[0]}% + ${t.r[1]}% + ${t.r[2]}%`; })()} if all are ${esc(R.tiers[R.tiers.length - 1].name)}), and the three pools are fixed slices of company sales that are shared out, never multiplied. The budget for paying reps is <b>${pct(R.budgetMax / 100, 0)}</b> of sales.</p>
+    <p>However deep a team grows, the bonuses can never pay more than <b>${pct(ceil, 0)}</b> of product sales: each sale pays Level Bonus to at most 3 people above the seller (${(() => { const t = R.tiers[R.tiers.length - 1]; return `${t.r[0]}% + ${t.r[1]}% + ${t.r[2]}%`; })()} if all are ${esc(R.tiers[R.tiers.length - 1].name)}), and the three pools are fixed slices of company sales that are shared out, never multiplied. The budget for paying reps is <b>${pct(R.budgetMax / 100, 0)}</b> of sales.</p>
     <div class="risks">
       <div class="risk"><b>Risk 1: member discounts.</b> Package discounts (up to ${Math.max(...R.packages.map(p => p.disc))}%) and referral commission on joining fees (${(R.feeComm || []).join("% + ")}%) come on top of the bonuses. If most reps hold the top package, the total passes the budget (Scenario 5).</div>
       ${R.costs.fixedYear > 0 ? `<div class="risk"><b>Risk 2: low sales.</b> Fixed costs are ${money(R.costs.fixedYear / 12)} a month. Below the break-even sales shown for each scenario, the company loses money even at a safe payout rate.</div>`
