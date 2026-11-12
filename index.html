@@ -89,6 +89,8 @@ tr.clickable { cursor: pointer } tr.clickable:hover td { background: var(--surfa
 .pill.good { background: var(--good-bg); color: var(--good) } .pill.warn { background: var(--warn-bg); color: var(--warn) }
 .pill.bad { background: var(--bad-bg); color: var(--bad) } .pill.idle { background: var(--surface-2); color: var(--muted) }
 .neg { color: var(--bad) }
+.steps-list { margin: 0; padding-left: 20px; display: grid; gap: 8px }
+.field select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit }
 
 .chips { display: flex; gap: 8px; flex-wrap: wrap }
 .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-size: 14px; font-weight: 500 }
@@ -180,6 +182,8 @@ td select { width: 170px }
       <div><h2>Every scenario at a glance</h2><p class="muted">Each row is one full calculation. Click a row to open it.</p></div>
       <div class="tablewrap"><table id="ov-summary"></table></div>
     </div>
+    <div class="card stack" id="ov-control"></div>
+    <div class="card stack" id="ov-test"></div>
     <div>
       <h2 style="margin-bottom:12px">The three questions this answers</h2>
       <div class="qgrid" id="ov-questions"></div>
@@ -251,13 +255,14 @@ const DEFAULT_RULES = {
   gen: { gold: { pv: 3000, gv: 10000, shares: 1 }, platinum: { pv: 6000, gv: 25000, shares: 3 } },
   starLegGV: 25000, legsNeeded: 2,
   budgetMax: 45, buffer: 5,
-  costs: { card: 3.5, operating: 26.5, product: 25, fixedYear: 292560 },
+  costs: { card: 3.5, operating: 26.5, product: 25, fixedYear: 292560, pkgGoods: 0 },
+  feeComm: [30, 15, 5], cap: "off",
   packages: [
     { name: "Product Member", fee: 798, disc: 10 }, { name: "Junior Entrepreneur", fee: 5980, disc: 15 },
     { name: "Senior Entrepreneur", fee: 9980, disc: 20 }, { name: "Entrepreneur Partner", fee: 19980, disc: 30 }]
 };
 
-function rep(id, name, sponsor, pv, pkg) { return { id, name, sponsor: sponsor || "", pv, pkg: pkg || "" }; }
+function rep(id, name, sponsor, pv, pkg, joined) { return { id, name, sponsor: sponsor || "", pv, pkg: pkg || "", joined: !!joined }; }
 function defaultScenarios() {
   const ex1 = [rep("YOU", "You", "", 6000),
     rep("A1", "Leg 1", "YOU", 2000), rep("A2", "Leg 2", "YOU", 4500), rep("A3", "Leg 3", "YOU", 1500),
@@ -299,14 +304,22 @@ function defaultScenarios() {
       outside: { ...none }, people: [rep("YOU", "You (example)", "", 1800, "Senior Entrepreneur"), rep("R1", "Rep 1 (example)", "YOU", 900, "Junior Entrepreneur"), rep("R2", "Rep 2 (example)", "R1", 400, "Product Member")] },
     { key: "s5", short: "5 · Stress + packages", title: "Stress test with every rep on the Partner package", eyebrow: "Scenario 5 · worst case",
       desc: "Scenario 3's team, but every rep holds the Entrepreneur Partner package (30% retail discount): the plan's bonuses plus the biggest member discount.",
-      outside: { ...none }, people: stress("Entrepreneur Partner") }];
+      outside: { ...none }, people: stress("Entrepreneur Partner") },
+    { key: "s6", short: "6 · New members", title: "A month with new members joining", eyebrow: "Scenario 6 · 8 reps, 7 joined this month",
+      desc: "One existing leader brings in 7 new members on different packages. Their joining fees are company income, and the referral commission on each fee (30% sponsor, 15% next up, 5% the one above) is paid to the reps above them.",
+      outside: { ...none }, people: [
+        rep("YOU", "You (existing leader)", "", 1800, "Senior Entrepreneur", false),
+        rep("A", "New member A", "YOU", 900, "Junior Entrepreneur", true), rep("B", "New member B", "YOU", 180, "Product Member", true),
+        rep("C", "New member C", "YOU", 2000, "Entrepreneur Partner", true),
+        rep("A1", "New member A1", "A", 180, "Product Member", true), rep("A2", "New member A2", "A", 600, "Junior Entrepreneur", true),
+        rep("C1", "New member C1", "C", 1000, "Senior Entrepreneur", true), rep("C11", "New member C11", "C1", 180, "Product Member", true)] }];
 }
 
 /* ------------------------------------------------------------------ state */
 const KEY = "n360-commission-calc-v1";
 const clone = (o) => JSON.parse(JSON.stringify(o));
 function loadState() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); return s; } } } catch (e) { /* storage unavailable */ }
+  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); s.rules.costs = Object.assign(clone(DEFAULT_RULES.costs), s.rules.costs); const d = defaultScenarios(); while (s.scenarios.length < d.length) s.scenarios.push(d[s.scenarios.length]); return s; } } } catch (e) { /* storage unavailable */ }
   return { rules: clone(DEFAULT_RULES), scenarios: defaultScenarios() };
 }
 let state = loadState();
@@ -401,33 +414,66 @@ function calc(sc, R) {
   const outsideRank = { "Sales Star": Number(o.ss) || 0, "Diamond": Number(o.dia) || 0, "Crown Diamond": Number(o.crown) || 0, "Royal Crown Diamond": Number(o.royal) || 0 };
   const rankCount = {};
   RANKS.forEach(k => { rankCount[k] = [...rows.values()].filter(r => r.rank === k).length + outsideRank[k]; });
-  const discOf = (pkg) => { const p = R.packages.find(x => x.name === pkg); return p ? p.disc : 0; };
+  const pkgOf = (name) => R.packages.find(x => x.name === name);
+  const fc = R.feeComm || [0, 0, 0];
+  for (const r of rows.values()) { r.referral = 0; r.referralFrom = []; }
+  let feeIncome = 0, newMembers = 0;
+  for (const r of rows.values()) {
+    const pk = pkgOf(r.pkg);
+    r.joined = !!byId.get(r.id).joined;
+    r.fee = r.joined && pk ? pk.fee : 0;
+    if (!r.fee) continue;
+    feeIncome += r.fee; newMembers++;
+    let up = r.sponsor;
+    for (let i = 0; i < 3 && up && rows.has(up); i++) {
+      const amt = r.fee * (Number(fc[i]) || 0) / 100, u = rows.get(up);
+      u.referral += amt; u.referralFrom.push([r.id, i + 1, amt, r.pkg]);
+      up = u.sponsor;
+    }
+  }
   for (const r of rows.values()) {
     r.special = spTotal > 0 ? sales * R.pools.special / 100 * r.spShares / spTotal : 0;
     r.generation = genTotal > 0 ? sales * R.pools.generation / 100 * r.genShares / genTotal : 0;
     r.master = r.rank ? sales * rankPct[r.rank] / 100 / rankCount[r.rank] : 0;
-    r.discPct = discOf(r.pkg);
+    const pk = pkgOf(r.pkg);
+    r.discPct = pk ? pk.disc : 0;
     r.disc = r.pv * R.pvValue * r.discPct / 100;
-    r.payout = r.level + r.special + r.generation + r.master;
-    r.total = r.payout + r.disc;
     r.error = errors.get(r.id) || "";
   }
   const sum = (f) => [...rows.values()].reduce((a, r) => a + r[f], 0);
-  const level = sum("level"), disc = sum("disc");
+  const level = sum("level"), disc = sum("disc"), referral = sum("referral");
   const specialPaid = spTotal > 0 ? sales * R.pools.special / 100 : 0;
   const genPaid = genTotal > 0 ? sales * R.pools.generation / 100 : 0;
   const masterPaid = RANKS.reduce((a, k) => a + (rankCount[k] > 0 ? sales * rankPct[k] / 100 : 0), 0);
-  const paid = level + specialPaid + genPaid + masterPaid + disc;
-  const share = sales > 0 ? paid / sales : 0;
+  const revenue = sales + feeIncome;
+  const bonusesRaw = level + specialPaid + genPaid + masterPaid + referral;
+  const paidRaw = bonusesRaw + disc;
   const target = (R.budgetMax - R.buffer) / 100, max = R.budgetMax / 100;
-  const result = sales === 0 ? "Enter sales" : share > max ? "OVER MAX" : share > target ? "Using buffer" : "Within target";
+  const capPct = R.cap === "target" ? target : R.cap === "max" ? max : null;
+  let factor = 1;
+  if (capPct !== null && revenue > 0 && paidRaw > capPct * revenue && bonusesRaw > 0)
+    factor = Math.max(0, (capPct * revenue - disc) / bonusesRaw);
+  for (const r of rows.values()) {
+    const b = r.level + r.special + r.generation + r.master + r.referral;
+    r.capCut = b * (1 - factor);
+    r.payout = b - r.capCut;
+    r.total = r.payout + r.disc;
+  }
+  const capCut = bonusesRaw * (1 - factor);
+  const paid = paidRaw - capCut;
+  const share = revenue > 0 ? paid / revenue : 0;
+  const eps = 1e-9;
+  const result = revenue === 0 ? "Enter sales" : share > max + eps ? "OVER MAX" : share > target + eps ? "Using buffer" : "Within target";
   const costPct = (R.costs.card + R.costs.operating + R.costs.product) / 100;
-  const costs = sales * costPct, fixed = R.costs.fixedYear / 12;
-  const profit = sales - paid - costs - fixed;
-  const margin = 1 - costPct - share;
+  const feeCost = feeIncome * (R.costs.card + (Number(R.costs.pkgGoods) || 0)) / 100;
+  const costs = sales * costPct + feeCost, fixed = R.costs.fixedYear / 12;
+  const profit = revenue - paid - costs - fixed;
+  const margin = revenue > 0 ? (revenue - paid - costs) / revenue : 1 - costPct;
   const breakEven = margin <= 0 ? "Never" : fixed / margin;
+  const profitTest = revenue === 0 ? "Enter sales" : profit >= 0 ? "Profit" : "Loss";
   const poolPct = (R.pools.special + R.pools.generation + R.pools.star + R.pools.diamond + R.pools.crown + R.pools.royal) / 100;
-  return { rows, roots, kids, errors, sales, level, specialPaid, genPaid, masterPaid, disc, paid, share, target, max, result,
+  return { rows, roots, kids, errors, sales, revenue, feeIncome, feeCost, newMembers, referral, level, specialPaid, genPaid, masterPaid, disc,
+    bonusesRaw, paidRaw, capCut, factor, capPct, paid, share, target, max, result, profitTest,
     costs, fixed, profit, breakEven, spTotal, genTotal, rankCount, rankPct, kept: sales * poolPct - specialPaid - genPaid - masterPaid,
     people: rows.size, maxDepth: Math.max(0, ...[...rows.values()].map(r => r.depth ?? 0)) };
 }
@@ -436,6 +482,55 @@ function ceiling(R) {
   return (best + R.pools.special + R.pools.generation + R.pools.star + R.pools.diamond + R.pools.crown + R.pools.royal) / 100;
 }
 const pillClass = (res) => res === "OVER MAX" ? "bad" : res === "Using buffer" ? "warn" : res === "Within target" ? "good" : "idle";
+
+const profitClass = (t) => t === "Profit" ? "good" : t === "Loss" ? "bad" : "idle";
+
+/* why a scenario loses money, what controls it, and how to test any case */
+function renderControl(results) {
+  const R = state.rules, el = document.getElementById("ov-control");
+  const costPct = (R.costs.card + R.costs.operating + R.costs.product) / 100, fixed = R.costs.fixedYear / 12;
+  const i4 = state.scenarios.findIndex(x => x.key === "s4"), i5 = state.scenarios.findIndex(x => x.key === "s5");
+  const r4 = results[i4], r5 = results[i5], sc5 = state.scenarios[i5];
+  const box4 = r4 ? `<div class="risk"><b>Scenario 4 · ${r4.profitTest === "Loss" ? "loses money because sales are too small" : "makes a profit"}.</b>
+    The payout is ${pct(r4.share)} of income (${esc(r4.result.toLowerCase())}), so the plan is not the problem. Income of ${money(r4.revenue)} cannot cover
+    ${money(fixed)} of fixed costs a month plus ${pct(costPct, 1)} running costs. <b>Control: volume.</b> At this payout rate the company needs about
+    <b>${money(r4.breakEven)}</b> of sales a month to break even.</div>` : "";
+  const box5 = r5 ? `<div class="risk"><b>Scenario 5 · ${r5.result === "OVER MAX" ? "over the maximum" : esc(r5.result.toLowerCase())}.</b>
+    Bonuses ${pct((r5.bonusesRaw - r5.capCut) / r5.revenue)} + package discounts ${pct(r5.disc / r5.revenue)} = <b>${pct(r5.share)}</b> of income.
+    With running costs of ${pct(costPct, 1)}, every ${money(1)} sold costs ${money(r5.share + costPct)}, so more sales only make the loss bigger:
+    break-even is <b>${esc(String(r5.breakEven === "Never" ? "never" : money(r5.breakEven)))}</b>. <b>Control: a payout cap and smaller package discounts</b> (table below).</div>` : "";
+  let ctrl = "";
+  if (sc5) {
+    const limitDisc = (n) => R.packages.map(p => ({ ...p, disc: Math.min(p.disc, n) }));
+    const variants = [
+      ["No control (as it is)", {}],
+      [`Payout cap at the ${pct(R.budgetMax / 100, 0)} maximum`, { cap: "max" }],
+      [`Payout cap at the ${pct((R.budgetMax - R.buffer) / 100, 0)} target`, { cap: "target" }],
+      ["Package discounts limited to 15%", { cap: "off", packages: limitDisc(15) }],
+      ["Package discounts limited to 20%", { cap: "off", packages: limitDisc(20) }],
+      [`Discounts limited to 20% + cap at ${pct((R.budgetMax - R.buffer) / 100, 0)}`, { cap: "target", packages: limitDisc(20) }]];
+    const rows = variants.map(([label, patch]) => { const v = calc(sc5, Object.assign(clone(R), patch));
+      return `<tr><td>${esc(label)}</td><td class="n">${money(v.paid)}</td><td class="n">${pct(v.share)}</td>
+        <td><span class="pill ${pillClass(v.result)}">${esc(v.result)}</span></td><td><span class="pill ${profitClass(v.profitTest)}">${esc(v.profitTest)}</span></td>
+        <td class="n ${v.profit < 0 ? "neg" : ""}">${money(v.profit)}</td></tr>`; }).join("");
+    ctrl = `<h3>Ways to control an over-maximum month, worked live on Scenario 5's team</h3>
+      <div class="tablewrap"><table><thead><tr><th>Control</th><th class="n">Paid to reps</th><th class="n">% of income</th><th>Payout test</th><th>Profit test</th><th class="n">Company profit</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note"><b>Payout cap:</b> if a month's total would pass the cap, every bonus is cut by the same percentage so the total lands exactly on the cap. It is the standard safety valve, and you can switch it on in Plan rules. <b>Discounts</b> are given at checkout, so they cannot be cut afterwards; control them by the package design. A cap at ${pct(R.budgetMax / 100, 0)} still loses money, because running costs (${pct(costPct, 1)}) plus ${pct(R.budgetMax / 100, 0)} leave nothing for fixed costs.</p>`;
+  }
+  const bands = [20, 25, 30, 35, 40, 45].map(p => { const m = 1 - costPct - p / 100; return `<tr><td class="n">${p}%</td><td class="n">${m > 0 ? money(fixed / m) : "Never"}</td><td class="n">${m > 0 ? pct(m, 1) : "0%"}</td></tr>`; }).join("");
+  el.innerHTML = `<h2>Why Scenarios 4 and 5 lose money, and how to control it</h2>
+    <div class="risks">${box4}${box5}</div>${ctrl}
+    <h3>Sales needed each month to cover ${money(fixed)} of fixed costs</h3>
+    <div class="tablewrap"><table><thead><tr><th class="n">Paid to reps</th><th class="n">Sales needed per month</th><th class="n">Left from each sale for fixed costs</th></tr></thead><tbody>${bands}</tbody></table></div>
+    <p class="note">The lower the payout, the less the company needs to sell. Running costs are ${pct(costPct, 1)} of sales (card ${R.costs.card}% + operating ${R.costs.operating}% + product ${R.costs.product}%).</p>`;
+  document.getElementById("ov-test").innerHTML = `<h2>How to test any case</h2>
+    <ol class="steps-list">
+      <li><b>Enter the team.</b> Open Scenario 4 · Your team (or any scenario) and list each rep: who sponsored them, their own sales in PV and their package. Tick <i>New this month</i> for anyone who joined: their joining fee counts as income and pays referral commission to the 3 reps above them.</li>
+      <li><b>Read the Payout test.</b> Green <i>Within target</i> is ${pct((R.budgetMax - R.buffer) / 100, 0)} or less, amber <i>Using buffer</i> is up to ${pct(R.budgetMax / 100, 0)}, red <i>OVER MAX</i> is above it.</li>
+      <li><b>Read the Profit test.</b> <i>Profit</i> means income covers the payout, running costs and fixed costs. If it says <i>Loss</i>, the break-even figure shows the sales needed.</li>
+      <li><b>A case is safe when both tests are green.</b> To make the Payout test impossible to fail, set the Payout cap in Plan rules.</li>
+    </ol>`;
+}
 
 /* ------------------------------------------------------------------ overview */
 function renderOverview() {
@@ -447,19 +542,20 @@ function renderOverview() {
     <p class="big">${safe ? "The plan's bonuses cannot break the company." : "Warning: the plan's bonuses can exceed the budget."}</p>
     <p>However deep a team grows, the bonuses can never pay more than <b>${pct(ceil, 0)}</b> of sales: each sale pays Level Bonus to at most 3 people above the seller (${(() => { const t = R.tiers[R.tiers.length - 1]; return `${t.r[0]}% + ${t.r[1]}% + ${t.r[2]}%`; })()} if all are ${esc(R.tiers[R.tiers.length - 1].name)}), and the three pools are fixed slices of company sales that are shared out, never multiplied. The budget for paying reps is <b>${pct(R.budgetMax / 100, 0)}</b> of sales.</p>
     <div class="risks">
-      <div class="risk"><b>Risk 1: member discounts.</b> Package discounts (up to ${Math.max(...R.packages.map(p => p.disc))}%) come on top of the bonuses. If most reps hold the top package, the total passes the budget (Scenario 5).</div>
+      <div class="risk"><b>Risk 1: member discounts.</b> Package discounts (up to ${Math.max(...R.packages.map(p => p.disc))}%) and referral commission on joining fees (${(R.feeComm || []).join("% + ")}%) come on top of the bonuses. If most reps hold the top package, the total passes the budget (Scenario 5).</div>
       <div class="risk"><b>Risk 2: low sales.</b> Fixed costs are ${money(R.costs.fixedYear / 12)} a month. Below the break-even sales shown for each scenario, the company loses money even at a safe payout rate.</div>
     </div>`;
-  const head = `<thead><tr><th>Scenario</th><th class="n">Reps</th><th class="n">Company sales</th><th class="n">Paid to reps</th><th class="n">% of sales</th><th>Result</th><th class="n">Company profit</th><th class="n">Break-even sales / month</th></tr></thead>`;
+  const head = `<thead><tr><th>Scenario</th><th class="n">Reps</th><th class="n">Company income</th><th class="n">Paid to reps</th><th class="n">% of income</th><th>Payout test</th><th>Profit test</th><th class="n">Company profit</th><th class="n">Break-even sales / month</th></tr></thead>`;
   const body = results.map((r, i) => `<tr class="clickable" data-open="${i}"><td><b>${esc(state.scenarios[i].short)}</b><div class="note">${esc(state.scenarios[i].title)}</div></td>
-    <td class="n">${r.people}</td><td class="n">${money(r.sales)}</td><td class="n">${money(r.paid)}</td><td class="n">${pct(r.share)}</td>
-    <td><span class="pill ${pillClass(r.result)}">${esc(r.result)}</span></td>
+    <td class="n">${r.people}</td><td class="n">${money(r.revenue)}</td><td class="n">${money(r.paid)}</td><td class="n">${pct(r.share)}</td>
+    <td><span class="pill ${pillClass(r.result)}">${esc(r.result)}</span></td><td><span class="pill ${profitClass(r.profitTest)}">${esc(r.profitTest)}</span></td>
     <td class="n ${r.profit < 0 ? "neg" : ""}">${money(r.profit)}</td><td class="n">${money(r.breakEven)}</td></tr>`).join("");
   const sumTable = document.getElementById("ov-summary");
   sumTable.innerHTML = head + "<tbody>" + body + "</tbody>";
   sumTable.querySelectorAll("tr[data-open]").forEach(tr => tr.addEventListener("click", () => { location.hash = "s" + (Number(tr.dataset.open) + 1); }));
+  renderControl(results);
   const qs = [
-    ["Does the payout break the company?", "Answer above, and the Result column: green within the 40% target, amber using the 5% buffer, red over the 45% maximum."],
+    ["Does the payout break the company?", "Answer above, and the Payout test and Profit test columns. Both green means the month is safe."],
     ["One complete example that covers the unlimited group in depth", "Scenario 1 (8 levels) and Scenario 2 (12 levels). Open one and read the tree: every level counts in team sales, each rep earns Level Bonus on 3 levels only."],
     ["Each scenario, one calculation, to see if the payout is over the limit", "Every scenario is one full calculation with its own result. Edit any team or rule and it recalculates instantly."]];
   document.getElementById("ov-questions").innerHTML = qs.map(([a, b]) => `<div class="q"><p class="ask">${esc(a)}</p><p class="muted">${esc(b)}</p></div>`).join("");
@@ -476,10 +572,10 @@ function renderScenario() {
   document.getElementById("sc-desc").textContent = sc.desc;
 
   document.getElementById("sc-kpis").innerHTML = [
-    ["Company sales", money(res.sales), `${num(res.sales / R.pvValue)} PV this month`],
-    ["Paid to reps", money(res.paid), `${pct(res.share)} of sales`],
-    ["Result", `<span class="pill ${pillClass(res.result)}">${esc(res.result)}</span>`, `target ${pct(res.target, 0)}, maximum ${pct(res.max, 0)}`],
-    ["Company profit", `<span class="${res.profit < 0 ? "neg" : ""}">${money(res.profit)}</span>`, `${res.sales ? pct(res.profit / res.sales) : "-"} of sales`],
+    ["Company income", money(res.revenue), `${num(res.sales / R.pvValue)} PV of sales` + (res.feeIncome ? ` + ${money(res.feeIncome)} fees` : "")],
+    ["Paid to reps", money(res.paid), `${pct(res.share)} of income`],
+    ["Payout test", `<span class="pill ${pillClass(res.result)}">${esc(res.result)}</span>`, `target ${pct(res.target, 0)}, maximum ${pct(res.max, 0)}` + (res.capPct !== null ? ` · cap ${pct(res.capPct, 0)}` : "")],
+    ["Profit test", `<span class="pill ${profitClass(res.profitTest)}">${esc(res.profitTest)}</span>`, `<span class="${res.profit < 0 ? "neg" : ""}">${money(res.profit)}</span> this month`],
     ["Break-even sales", money(res.breakEven), "a month, to cover fixed costs"]]
     .map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
@@ -487,17 +583,21 @@ function renderScenario() {
   const fillColor = res.result === "OVER MAX" ? "var(--bad)" : res.result === "Using buffer" ? "var(--warn)" : "var(--good)";
   const at = (v) => Math.min(100, v / scaleMax * 100);
   document.getElementById("sc-budget").innerHTML = `
-    <div class="btnrow" style="justify-content:space-between"><h3>Paid to reps against the budget</h3><span class="num">${pct(res.share)} of sales</span></div>
-    <div class="bar" role="img" aria-label="Paid to reps ${pct(res.share)} of sales; target ${pct(res.target, 0)}; maximum ${pct(res.max, 0)}">
+    <div class="btnrow" style="justify-content:space-between"><h3>Paid to reps against the budget</h3><span class="num">${pct(res.share)} of income</span></div>
+    <div class="bar" role="img" aria-label="Paid to reps ${pct(res.share)} of income; target ${pct(res.target, 0)}; maximum ${pct(res.max, 0)}">
       <div class="fill" style="width:${at(res.share)}%;background:${fillColor}"></div>
       <div class="mark" style="left:${at(res.target)}%"></div><div class="mark" style="left:${at(res.max)}%"></div></div>
     <div class="scale"><span style="left:${at(res.target)}%">target ${pct(res.target, 0)}</span><span style="left:${at(res.max)}%">max ${pct(res.max, 0)}</span></div>`;
 
   const lines = [
+    ["Product sales", res.sales], res.feeIncome ? [`Membership fees (${res.newMembers} new member${res.newMembers === 1 ? "" : "s"})`, res.feeIncome] : null,
+    ["Company income", res.revenue, true],
     ["Level Bonus (3 levels per rep)", res.level], ["Special Bonus pool", res.specialPaid], ["Generation Bonus pool", res.genPaid],
-    ["Sales Master pools", res.masterPaid], ["Member retail discounts", res.disc], ["Total paid to reps", res.paid, true],
+    ["Sales Master pools", res.masterPaid], res.feeIncome || res.referral ? ["Referral commission on joining fees", res.referral] : null,
+    ["Member retail discounts", res.disc], res.capCut > 0.005 ? [`Cut by the payout cap (bonuses × ${pct(res.factor, 1)})`, -res.capCut] : null,
+    ["Total paid to reps", res.paid, true],
     ["Card, operating and product costs", res.costs], ["Fixed costs this month", res.fixed], ["Company profit", res.profit, true],
-    ["Pool money not paid out (nobody qualified)", res.kept]];
+    ["Pool money not paid out (nobody qualified)", res.kept]].filter(Boolean);
   document.getElementById("sc-breakdown").innerHTML = lines.map(([l, v, strong]) =>
     `<div class="r ${strong ? "strong" : ""}"><span>${esc(l)}</span><span class="num ${v < 0 ? "neg" : ""}">${money(v)}</span></div>`).join("");
 
@@ -545,8 +645,12 @@ function renderPerson(res) {
     ["Special Bonus", esc(spWhy), money(r.special)],
     ["Generation Bonus", esc(genWhy), money(r.generation)],
     ["Sales Master", esc(smWhy), money(r.master)],
-    ["Member discount", r.discPct ? esc(`${r.pkg}: ${r.discPct}% off own sales of ${money(r.pv * R.pvValue)}.`) : "No package chosen.", money(r.disc)],
-    ["Total this month", "Bonuses plus member discount.", money(r.total)]];
+    ...(res.feeIncome || r.referral ? [["Referral commission", r.referralFrom.length
+      ? esc(r.referralFrom.slice(0, 4).map(([id, l, amt, pk]) => `${id} (${pk}, ${l === 1 ? "own recruit" : l === 2 ? "2 below" : "3 below"}) ${R.feeComm[l - 1]}% = ${money(amt)}`).join("; ") + (r.referralFrom.length > 4 ? `; and ${r.referralFrom.length - 4} more` : "") + ".")
+      : "No new members within 3 levels below.", money(r.referral)]] : []),
+    ["Member discount", (r.discPct ? esc(`${r.pkg}: ${r.discPct}% off own sales of ${money(r.pv * R.pvValue)}.`) : "No package chosen.") + (r.fee ? esc(` Joined this month: paid a ${money(r.fee)} joining fee.`) : ""), money(r.disc)],
+    ...(r.capCut > 0.005 ? [["Payout cap", esc(`This month's bonuses are cut to ${pct(res.factor, 1)} to keep the total at the cap.`), "−" + money(r.capCut)]] : []),
+    ["Total this month", "Bonuses, referral commission and member discount.", money(r.total)]];
   el.innerHTML = `<div><h3>${esc(r.id)}${r.name ? " · " + esc(r.name) : ""}</h3>${r.error ? `<p class="flag">${esc(r.error)}</p>` : ""}</div>` +
     steps.map(([k, why, amt], i) => `<div class="step"${i === steps.length - 1 ? ' style="font-weight:700"' : ""}><span class="k">${k}</span><span class="why">${why}</span><span class="amt">${amt}</span></div>`).join("");
 }
@@ -632,9 +736,9 @@ function renderTable(sc, res) {
   const R = state.rules, t = document.getElementById("sc-table");
   document.getElementById("id-list").innerHTML = sc.people.map(p => `<option value="${esc(p.id)}"></option>`).join("");
   const pk = ["", ...R.packages.map(p => p.name)];
-  const head = `<thead><tr><th>Rep ID</th><th>Name</th><th>Sponsor ID</th><th class="n">Own sales (PV)</th><th>Package</th>
+  const head = `<thead><tr><th>Rep ID</th><th>Name</th><th>Sponsor ID</th><th class="n">Own sales (PV)</th><th>Package</th><th>New this month</th>
     <th class="n">Level</th><th class="n">Team sales (GV)</th><th>Tier</th><th class="n">Level Bonus</th><th class="n">Special</th>
-    <th class="n">Generation</th><th>Sales Master</th><th class="n">Discount</th><th class="n">Total</th><th>Check</th><th></th></tr></thead>`;
+    <th class="n">Generation</th><th>Sales Master</th><th class="n">Referral</th><th class="n">Discount</th><th class="n">Total</th><th>Check</th><th></th></tr></thead>`;
   const body = sc.people.map((p, i) => {
     const r = res.rows.get(String(p.id || "").trim());
     const c = (v) => (r ? v : "");
@@ -644,14 +748,15 @@ function renderTable(sc, res) {
       <td><input class="sp" id="r${i}-sp" data-f="sponsor" list="id-list" value="${esc(p.sponsor)}" aria-label="Sponsor ID"></td>
       <td><input class="pv" id="r${i}-pv" data-f="pv" type="number" min="0" step="any" value="${Number(p.pv) || 0}" aria-label="Own sales PV"></td>
       <td><select id="r${i}-pkg" data-f="pkg" aria-label="Package">${pk.map(n => `<option value="${esc(n)}"${n === (p.pkg || "") ? " selected" : ""}>${n ? esc(n) : "None"}</option>`).join("")}</select></td>
+      <td><input type="checkbox" id="r${i}-joined" data-f="joined"${p.joined ? " checked" : ""} aria-label="Joined this month"></td>
       <td class="n">${c(r ? r.depth ?? "" : "")}</td><td class="n">${c(r ? pvf(r.gv) : "")}</td><td>${c(r ? tierName(r.tier) : "")}</td>
       <td class="n">${c(r ? money(r.level) : "")}</td><td class="n">${c(r ? money(r.special) : "")}</td><td class="n">${c(r ? money(r.generation) : "")}</td>
-      <td>${c(r ? (r.rank ? esc(r.rank) + " · " + money(r.master) : "-") : "")}</td><td class="n">${c(r ? money(r.disc) : "")}</td>
+      <td>${c(r ? (r.rank ? esc(r.rank) + " · " + money(r.master) : "-") : "")}</td><td class="n">${c(r ? money(r.referral) : "")}</td><td class="n">${c(r ? money(r.disc) : "")}</td>
       <td class="n"><b>${c(r ? money(r.total) : "")}</b></td><td>${r && r.error ? `<span class="flag">${esc(r.error)}</span>` : r ? "OK" : ""}</td>
       <td><button class="btn small" type="button" data-del="${i}" aria-label="Remove ${esc(p.id)}">Remove</button></td></tr>`;
   }).join("");
-  const tot = `<tr class="total"><td colspan="8">Team total</td><td class="n">${money(res.level)}</td><td class="n">${money(sumRows(res, "special"))}</td>
-    <td class="n">${money(sumRows(res, "generation"))}</td><td>${money(sumRows(res, "master"))}</td><td class="n">${money(res.disc)}</td>
+  const tot = `<tr class="total"><td colspan="9">Team total</td><td class="n">${money(res.level)}</td><td class="n">${money(sumRows(res, "special"))}</td>
+    <td class="n">${money(sumRows(res, "generation"))}</td><td>${money(sumRows(res, "master"))}</td><td class="n">${money(res.referral)}</td><td class="n">${money(res.disc)}</td>
     <td class="n">${money(sumRows(res, "total"))}</td><td colspan="2"></td></tr>`;
   t.innerHTML = head + "<tbody>" + body + tot + "</tbody>";
   t.querySelectorAll("input[data-f], select[data-f]").forEach(inp => inp.addEventListener("change", () => {
@@ -662,6 +767,7 @@ function renderTable(sc, res) {
       if (ui.person === old) ui.person = nv;
       p.id = nv;
     } else if (f === "pv") p.pv = Number(inp.value) || 0;
+    else if (f === "joined") p.joined = inp.checked;
     else p[f] = f === "sponsor" ? inp.value.trim() : inp.value;
     save(); renderAll();
   }));
@@ -713,23 +819,32 @@ function renderRules() {
     <label class="field">Card / NETS / PayNow charges (%)${inp("costs.card", R.costs.card)}</label><label class="field">Other operating cost (%)${inp("costs.operating", R.costs.operating)}</label>
     <label class="field">Product cost per bottle (%)${inp("costs.product", R.costs.product)}</label><label class="field">Fixed costs per year (${esc(cur)})${inp("costs.fixedYear", R.costs.fixedYear)}</label></div>
     <p class="note">Target paid to reps = maximum − buffer = ${pct((R.budgetMax - R.buffer) / 100, 0)}. The plan's bonuses alone can never pass ${pct(ceiling(R), 0)} of sales.</p></div>`;
+  const capCard = `<div class="card"><h2>Payout cap (safety control)</h2><p class="muted">If a month's total payout would pass the cap, every bonus (Level, pools and referral commission) is cut by the same percentage so the total lands on the cap. Member discounts are not cut, because they are given at checkout.</p>
+    <label class="field">Payout cap<select data-path="cap" data-kind="str" id="rule-cap">
+      ${[["off", "Off: show the true payout"], ["target", `On: cap at the target (${pct((R.budgetMax - R.buffer) / 100, 0)})`], ["max", `On: cap at the maximum (${pct(R.budgetMax / 100, 0)})`]].map(([v, l]) => `<option value="${v}"${R.cap === v ? " selected" : ""}>${l}</option>`).join("")}
+    </select></label></div>`;
   const CN = { "Product Member": "产品会员", "Junior Entrepreneur": "创业者", "Senior Entrepreneur": "资深创业", "Entrepreneur Partner": "创业合伙人" };
-  const pkgs = `<div class="card"><h2>Membership packages</h2><p class="muted">From the client's costing slide, not the commission plan. A rep gets a package by paying its one-time joining fee; the bigger the package, the bigger the retail discount. The calculator costs the discount on each rep's own sales and counts it as money paid to reps. Joining fees are for reference only.</p>
+  const pkgs = `<div class="card"><h2>Membership packages and fees</h2><p class="muted">From the costing slide. A rep gets a package by paying its one-time joining fee; the bigger the package, the bigger the retail discount on their own orders. Tick <i>New this month</i> in a team table to count the fee as income and pay referral commission on it.</p>
     <div class="tablewrap"><table><thead><tr><th>Package</th><th class="n">Joining fee (${esc(cur)})</th><th class="n">Retail discount %</th></tr></thead><tbody>
-    ${R.packages.map((p, i) => `<tr><td>${esc(p.name)}${CN[p.name] ? ` <span class="muted">${CN[p.name]}</span>` : ""}</td><td class="n">${inp(`packages.${i}.fee`, p.fee)}</td><td class="n">${inp(`packages.${i}.disc`, p.disc)}</td></tr>`).join("")}</tbody></table></div></div>`;
+    ${R.packages.map((p, i) => `<tr><td>${esc(p.name)}${CN[p.name] ? ` <span class="muted">${CN[p.name]}</span>` : ""}</td><td class="n">${inp(`packages.${i}.fee`, p.fee)}</td><td class="n">${inp(`packages.${i}.disc`, p.disc)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="form"><label class="field">Referral commission to the sponsor (% of fee)${inp("feeComm.0", R.feeComm[0])}</label>
+    <label class="field">Team commission to the next one up (%)${inp("feeComm.1", R.feeComm[1])}</label>
+    <label class="field">Leader commission to the one above that (%)${inp("feeComm.2", R.feeComm[2])}</label>
+    <label class="field">Cost of goods given with a package (% of fee)${inp("costs.pkgGoods", R.costs.pkgGoods)}</label></div></div>`;
   const confirm = `<div class="card"><h2>Points to confirm with ${esc(R.brand)}</h2><p class="muted">Where the plan document or costing slide is unclear, the calculator makes the choice below. Change the rules above if the answer differs.</p>
     <ul class="note" style="margin:0;padding-left:18px;display:grid;gap:8px">
       <li><b>Tier by targets only.</b> Example 4 and Other Example 3 promote a rep for having a Gold direct or 5 Bronze directs (S$2,715 and S$504). The tier table has no such rule, so here those reps stay Bronze (S$1,860 and S$405).</li>
       <li><b>Silver team sales 9,000 GV</b> (tier table). Example 1's text says 7,200.</li>
       <li><b>Retail discount</b> is read as a discount on the rep's own orders. The slide doesn't say what the joining fee includes.</li>
-      <li><b>“Referral 30%, team 15%, leader 5%”</b> on the costing slide is not in the commission plan and is not counted here.</li>
+      <li><b>“Referral 30%, team 15%, leader 5%”</b> on the costing slide is read as commission on joining fees: 30% to the sponsor, 15% to the next one up, 5% to the one above that. It is not in the commission plan.</li>
+      <li><b>Joining fees</b> are counted as income with card charges only. If a package includes products, set their cost under Membership packages.</li>
       <li><b>Budget.</b> Costs are 55% of sales (3.5% + 26.5% + 25%), so paying reps 45% leaves nothing for the ${money(R.costs.fixedYear)} a year of fixed costs. The plan's own profit table assumes 85% total costs, which leaves room for about 30% to reps.</li>
     </ul></div>`;
-  el.innerHTML = brandCard + tiers + pools + special + gen + ranks + budget + pkgs + confirm;
-  el.querySelectorAll("input[data-path]").forEach(i => i.addEventListener("change", () => {
+  el.innerHTML = brandCard + tiers + pools + special + gen + ranks + budget + capCard + pkgs + confirm;
+  el.querySelectorAll("[data-path]").forEach(i => i.addEventListener("change", () => {
     const parts = i.dataset.path.split("."); let o = state.rules;
     for (let k = 0; k < parts.length - 1; k++) o = o[parts[k]];
-    o[parts[parts.length - 1]] = i.type === "text" ? i.value : (Number(i.value) || 0);
+    o[parts[parts.length - 1]] = i.type === "text" || i.dataset.kind === "str" ? i.value : (Number(i.value) || 0);
     save(); renderAll();
   }));
 }
@@ -738,7 +853,7 @@ function renderRules() {
 function route() {
   const h = (location.hash || "#overview").slice(1);
   let view = "overview";
-  if (/^s[1-5]$/.test(h)) { view = "scenario"; const n = Number(h.slice(1)) - 1; if (n !== ui.scen) { ui.scen = n; ui.person = null; } }
+  if (/^s[1-9]$/.test(h) && Number(h.slice(1)) <= state.scenarios.length) { view = "scenario"; const n = Number(h.slice(1)) - 1; if (n !== ui.scen) { ui.scen = n; ui.person = null; } }
   else if (h === "rules") view = "rules";
   for (const v of ["overview", "scenario", "rules"]) document.getElementById("view-" + v).hidden = v !== view;
   document.querySelectorAll(".nav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === view ? "page" : "false"));
