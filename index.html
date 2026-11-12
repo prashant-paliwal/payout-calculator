@@ -242,7 +242,10 @@ td select { width: 170px }
 /* ------------------------------------------------------------------ defaults */
 const TIERS = ["Bronze", "Silver", "Gold", "Platinum"];
 const RANKS = ["Sales Star", "Diamond", "Crown Diamond", "Royal Crown Diamond"];
+const SLIDE_FIXED_YEAR = 292560; // costing slide: "Estimated Cost (System, advertising, Trademark)"
+const RULES_VERSION = 2;
 const DEFAULT_RULES = {
+  v: RULES_VERSION,
   brand: "Reseller 383", currency: "S$",
   pvValue: 5, payoutPerPV: 5,
   tiers: [
@@ -255,7 +258,7 @@ const DEFAULT_RULES = {
   gen: { gold: { pv: 3000, gv: 10000, shares: 1 }, platinum: { pv: 6000, gv: 25000, shares: 3 } },
   starLegGV: 25000, legsNeeded: 2,
   budgetMax: 45, buffer: 5,
-  costs: { card: 3.5, operating: 26.5, product: 25, fixedYear: 292560, pkgGoods: 0 },
+  costs: { card: 3.5, operating: 26.5, product: 25, fixedYear: 0, pkgGoods: 0 },
   feeComm: [30, 15, 5], cap: "off",
   packages: [
     { name: "Product Member", fee: 798, disc: 10 }, { name: "Junior Entrepreneur", fee: 5980, disc: 15 },
@@ -319,7 +322,7 @@ function defaultScenarios() {
 const KEY = "n360-commission-calc-v1";
 const clone = (o) => JSON.parse(JSON.stringify(o));
 function loadState() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); s.rules.costs = Object.assign(clone(DEFAULT_RULES.costs), s.rules.costs); const d = defaultScenarios(); while (s.scenarios.length < d.length) s.scenarios.push(d[s.scenarios.length]); return s; } } } catch (e) { /* storage unavailable */ }
+  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { const oldV = s.rules.v || 1; s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); s.rules.costs = Object.assign(clone(DEFAULT_RULES.costs), s.rules.costs); if (oldV < 2) { s.rules.costs.fixedYear = 0; s.rules.v = 2; } const d = defaultScenarios(); while (s.scenarios.length < d.length) s.scenarios.push(d[s.scenarios.length]); return s; } } } catch (e) { /* storage unavailable */ }
   return { rules: clone(DEFAULT_RULES), scenarios: defaultScenarios() };
 }
 let state = loadState();
@@ -469,8 +472,8 @@ function calc(sc, R) {
   const costs = sales * costPct + feeCost, fixed = R.costs.fixedYear / 12;
   const profit = revenue - paid - costs - fixed;
   const margin = revenue > 0 ? (revenue - paid - costs) / revenue : 1 - costPct;
-  const breakEven = margin <= 0 ? "Never" : fixed / margin;
-  const profitTest = revenue === 0 ? "Enter sales" : profit >= 0 ? "Profit" : "Loss";
+  const breakEven = margin <= 0 ? "Never" : fixed > 0 ? fixed / margin : "—";
+  const profitTest = revenue === 0 ? "Enter sales" : profit >= -0.005 ? "Profit" : "Loss";
   const poolPct = (R.pools.special + R.pools.generation + R.pools.star + R.pools.diamond + R.pools.crown + R.pools.royal) / 100;
   return { rows, roots, kids, errors, sales, revenue, feeIncome, feeCost, newMembers, referral, level, specialPaid, genPaid, masterPaid, disc,
     bonusesRaw, paidRaw, capCut, factor, capPct, paid, share, target, max, result, profitTest,
@@ -491,10 +494,13 @@ function renderControl(results) {
   const costPct = (R.costs.card + R.costs.operating + R.costs.product) / 100, fixed = R.costs.fixedYear / 12;
   const i4 = state.scenarios.findIndex(x => x.key === "s4"), i5 = state.scenarios.findIndex(x => x.key === "s5");
   const r4 = results[i4], r5 = results[i5], sc5 = state.scenarios[i5];
+  const refFixed = fixed > 0 ? fixed : SLIDE_FIXED_YEAR / 12;
+  const m4 = r4 && r4.revenue > 0 ? (r4.revenue - r4.paid - r4.costs) / r4.revenue : 0;
   const box4 = r4 ? `<div class="risk"><b>Scenario 4 · ${r4.profitTest === "Loss" ? "loses money because sales are too small" : "makes a profit"}.</b>
-    The payout is ${pct(r4.share)} of income (${esc(r4.result.toLowerCase())}), so the plan is not the problem. Income of ${money(r4.revenue)} cannot cover
-    ${money(fixed)} of fixed costs a month plus ${pct(costPct, 1)} running costs. <b>Control: volume.</b> At this payout rate the company needs about
-    <b>${money(r4.breakEven)}</b> of sales a month to break even.</div>` : "";
+    The payout is ${pct(r4.share)} of income (${esc(r4.result.toLowerCase())}), so the plan is not the problem. After the payout and ${pct(costPct, 1)} running costs,
+    ${money(r4.revenue)} of income leaves ${money(r4.revenue - r4.paid - r4.costs)}${fixed > 0 ? `, against ${money(fixed)} of fixed costs a month` : ""}.
+    ${fixed > 0 ? `<b>Control: volume.</b> At this payout rate the company needs about <b>${money(r4.breakEven)}</b> of sales a month to break even.`
+      : (m4 > 0 ? `Fixed costs are set to 0. With the slide's ${money(SLIDE_FIXED_YEAR)} a year (${money(refFixed)} a month) it would need about <b>${money(refFixed / m4)}</b> of sales a month.` : "")}</div>` : "";
   const box5 = r5 ? `<div class="risk"><b>Scenario 5 · ${r5.result === "OVER MAX" ? "over the maximum" : esc(r5.result.toLowerCase())}.</b>
     Bonuses ${pct((r5.bonusesRaw - r5.capCut) / r5.revenue)} + package discounts ${pct(r5.disc / r5.revenue)} = <b>${pct(r5.share)}</b> of income.
     With running costs of ${pct(costPct, 1)}, every ${money(1)} sold costs ${money(r5.share + costPct)}, so more sales only make the loss bigger:
@@ -515,12 +521,12 @@ function renderControl(results) {
         <td class="n ${v.profit < 0 ? "neg" : ""}">${money(v.profit)}</td></tr>`; }).join("");
     ctrl = `<h3>Ways to control an over-maximum month, worked live on Scenario 5's team</h3>
       <div class="tablewrap"><table><thead><tr><th>Control</th><th class="n">Paid to reps</th><th class="n">% of income</th><th>Payout test</th><th>Profit test</th><th class="n">Company profit</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="note"><b>Payout cap:</b> if a month's total would pass the cap, every bonus is cut by the same percentage so the total lands exactly on the cap. It is the standard safety valve, and you can switch it on in Plan rules. <b>Discounts</b> are given at checkout, so they cannot be cut afterwards; control them by the package design. A cap at ${pct(R.budgetMax / 100, 0)} still loses money, because running costs (${pct(costPct, 1)}) plus ${pct(R.budgetMax / 100, 0)} leave nothing for fixed costs.</p>`;
+      <p class="note"><b>Payout cap:</b> if a month's total would pass the cap, every bonus is cut by the same percentage so the total lands exactly on the cap. It is the standard safety valve, and you can switch it on in Plan rules. <b>Discounts</b> are given at checkout, so they cannot be cut afterwards; control them by the package design. A cap at ${pct(R.budgetMax / 100, 0)} leaves no profit at all: running costs (${pct(costPct, 1)}) plus ${pct(R.budgetMax / 100, 0)} use up every dollar of sales${fixed > 0 ? ", so fixed costs become a loss" : ""}.</p>`;
   }
-  const bands = [20, 25, 30, 35, 40, 45].map(p => { const m = 1 - costPct - p / 100; return `<tr><td class="n">${p}%</td><td class="n">${m > 0 ? money(fixed / m) : "Never"}</td><td class="n">${m > 0 ? pct(m, 1) : "0%"}</td></tr>`; }).join("");
-  el.innerHTML = `<h2>Why Scenarios 4 and 5 lose money, and how to control it</h2>
+  const bands = [20, 25, 30, 35, 40, 45].map(p => { const m = 1 - costPct - p / 100; return `<tr><td class="n">${p}%</td><td class="n">${m > 0 ? money(refFixed / m) : "Never"}</td><td class="n">${m > 0 ? pct(m, 1) : "0%"}</td></tr>`; }).join("");
+  el.innerHTML = `<h2>Scenarios 4 and 5 explained, and how to control an over-maximum month</h2>
     <div class="risks">${box4}${box5}</div>${ctrl}
-    <h3>Sales needed each month to cover ${money(fixed)} of fixed costs</h3>
+    <h3>Sales needed each month to cover ${money(refFixed)} of fixed costs${fixed > 0 ? "" : ` (the slide's ${money(SLIDE_FIXED_YEAR)} a year; not counted in the scenarios for now)`}</h3>
     <div class="tablewrap"><table><thead><tr><th class="n">Paid to reps</th><th class="n">Sales needed per month</th><th class="n">Left from each sale for fixed costs</th></tr></thead><tbody>${bands}</tbody></table></div>
     <p class="note">The lower the payout, the less the company needs to sell. Running costs are ${pct(costPct, 1)} of sales (card ${R.costs.card}% + operating ${R.costs.operating}% + product ${R.costs.product}%).</p>`;
   document.getElementById("ov-test").innerHTML = `<h2>How to test any case</h2>
@@ -543,7 +549,8 @@ function renderOverview() {
     <p>However deep a team grows, the bonuses can never pay more than <b>${pct(ceil, 0)}</b> of sales: each sale pays Level Bonus to at most 3 people above the seller (${(() => { const t = R.tiers[R.tiers.length - 1]; return `${t.r[0]}% + ${t.r[1]}% + ${t.r[2]}%`; })()} if all are ${esc(R.tiers[R.tiers.length - 1].name)}), and the three pools are fixed slices of company sales that are shared out, never multiplied. The budget for paying reps is <b>${pct(R.budgetMax / 100, 0)}</b> of sales.</p>
     <div class="risks">
       <div class="risk"><b>Risk 1: member discounts.</b> Package discounts (up to ${Math.max(...R.packages.map(p => p.disc))}%) and referral commission on joining fees (${(R.feeComm || []).join("% + ")}%) come on top of the bonuses. If most reps hold the top package, the total passes the budget (Scenario 5).</div>
-      <div class="risk"><b>Risk 2: low sales.</b> Fixed costs are ${money(R.costs.fixedYear / 12)} a month. Below the break-even sales shown for each scenario, the company loses money even at a safe payout rate.</div>
+      ${R.costs.fixedYear > 0 ? `<div class="risk"><b>Risk 2: low sales.</b> Fixed costs are ${money(R.costs.fixedYear / 12)} a month. Below the break-even sales shown for each scenario, the company loses money even at a safe payout rate.</div>`
+        : `<div class="risk"><b>Fixed costs are not counted.</b> They are set to 0 for now. The costing slide lists ${money(SLIDE_FIXED_YEAR)} for system, advertising and trademark; enter it under Plan rules to see the sales needed to cover it.</div>`}
     </div>`;
   const head = `<thead><tr><th>Scenario</th><th class="n">Reps</th><th class="n">Company income</th><th class="n">Paid to reps</th><th class="n">% of income</th><th>Payout test</th><th>Profit test</th><th class="n">Company profit</th><th class="n">Break-even sales / month</th></tr></thead>`;
   const body = results.map((r, i) => `<tr class="clickable" data-open="${i}"><td><b>${esc(state.scenarios[i].short)}</b><div class="note">${esc(state.scenarios[i].title)}</div></td>
@@ -576,7 +583,7 @@ function renderScenario() {
     ["Paid to reps", money(res.paid), `${pct(res.share)} of income`],
     ["Payout test", `<span class="pill ${pillClass(res.result)}">${esc(res.result)}</span>`, `target ${pct(res.target, 0)}, maximum ${pct(res.max, 0)}` + (res.capPct !== null ? ` · cap ${pct(res.capPct, 0)}` : "")],
     ["Profit test", `<span class="pill ${profitClass(res.profitTest)}">${esc(res.profitTest)}</span>`, `<span class="${res.profit < 0 ? "neg" : ""}">${money(res.profit)}</span> this month`],
-    ["Break-even sales", money(res.breakEven), "a month, to cover fixed costs"]]
+    ["Break-even sales", money(res.breakEven), res.breakEven === "—" ? "no fixed costs set" : res.breakEven === "Never" ? "loses money at any sales level" : "a month, to cover fixed costs"]]
     .map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
   const scaleMax = Math.max(0.6, Math.ceil((res.share + 0.05) * 10) / 10);
@@ -839,7 +846,7 @@ function renderRules() {
       <li><b>“Referral 30%, team 15%, leader 5%”</b> on the costing slide is read as commission on joining fees: 30% to the sponsor, 15% to the next one up, 5% to the one above that. It is not in the commission plan.</li>
       <li><b>Monthly reset.</b> Everything here starts from zero each month: PV, GV, tier and bonuses come from this month's sales only. The plan also says an account stays active with 4 bottles in 6 months, and talks of "accumulated" sales for the Generation Bonus. If tiers are kept between months, or sales build up over several months, the results change.</li>
       <li><b>Joining fees</b> are counted as income with card charges only. If a package includes products, set their cost under Membership packages.</li>
-      <li><b>Budget.</b> Costs are 55% of sales (3.5% + 26.5% + 25%), so paying reps 45% leaves nothing for the ${money(R.costs.fixedYear)} a year of fixed costs. The plan's own profit table assumes 85% total costs, which leaves room for about 30% to reps.</li>
+      <li><b>Budget.</b> Costs are 55% of sales (3.5% + 26.5% + 25%), so paying reps 45% leaves nothing for fixed costs (the slide lists ${money(SLIDE_FIXED_YEAR)} a year for system, advertising and trademark${R.costs.fixedYear > 0 ? "" : "; set to 0 here for now"}). The plan's own profit table assumes 85% total costs, which leaves room for about 30% to reps.</li>
     </ul></div>`;
   el.innerHTML = brandCard + tiers + pools + special + gen + ranks + budget + capCard + pkgs + confirm;
   el.querySelectorAll("[data-path]").forEach(i => i.addEventListener("change", () => {
