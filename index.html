@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nature 360 Commission Calculator</title>
+<title>Reseller 383 Commission Calculator</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Works out one month of the Nature 360 commission plan for any team and checks the payout against the company's budget.">
+<meta name="description" content="Works out one month of the Reseller 383 commission plan for any team and checks the payout against the company's budget.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -152,7 +152,7 @@ td select { width: 170px }
 .q .ask { font-weight: 700 }
 .rules-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr)) }
 .rules-grid .card { display: grid; gap: 10px; align-content: start }
-.rules-grid .card:first-child { grid-column: 1 / -1 }
+.rules-grid .card.wide { grid-column: 1 / -1 }
 .rules-grid table input { width: 76px; text-align: right; font-family: var(--font-num) }
 .rules-grid table input.txt { width: 150px; text-align: left; font-family: var(--font-ui) }
 @media (prefers-reduced-motion: no-preference) { .bar .fill { transition: width .3s ease } }
@@ -162,7 +162,7 @@ td select { width: 170px }
 <header class="topbar">
   <div class="wrap topbar-in">
     <div class="brand"><span class="mark" aria-hidden="true"></span>
-      <div><div class="brand-name">Nature 360 Commission Calculator</div><div class="brand-sub">Reseller plan v4 · one month · amounts in S$</div></div>
+      <div><div class="brand-name" id="brand-name">Reseller 383 Commission Calculator</div><div class="brand-sub" id="brand-sub">Commission plan v4 · one month · amounts in S$</div></div>
     </div>
     <nav class="nav" aria-label="Views">
       <a href="#overview" data-nav="overview">Overview</a>
@@ -226,7 +226,7 @@ td select { width: 170px }
   <!-- RULES -->
   <section id="view-rules" class="view" hidden>
     <div class="btnrow" style="justify-content:space-between">
-      <div><h1>Plan rules and costing</h1><p class="muted">Every number the calculator uses. Change any of them and every scenario updates. Source: Nature 360 / Sequoia reseller commission plan v4 (14 Oct 2022) and the client's costing slide.</p></div>
+      <div><h1>Plan rules and costing</h1><p class="muted">Every number the calculator uses. Change any of them and every scenario updates. Source: reseller commission plan v4 (14 Oct 2022) and the costing assumptions.</p></div>
       <button class="btn" id="btn-reset-all" type="button">Reset rules and scenarios</button>
     </div>
     <div class="rules-grid" id="rules"></div>
@@ -239,7 +239,8 @@ td select { width: 170px }
 const TIERS = ["Bronze", "Silver", "Gold", "Platinum"];
 const RANKS = ["Sales Star", "Diamond", "Crown Diamond", "Royal Crown Diamond"];
 const DEFAULT_RULES = {
-  pvValue: 5,
+  brand: "Reseller 383", currency: "S$",
+  pvValue: 5, payoutPerPV: 5,
   tiers: [
     { name: "Bronze", pv: 180, gv: 0, r: [5, 2, 0] },
     { name: "Silver", pv: 1800, gv: 9000, r: [6, 2, 1] },
@@ -305,7 +306,7 @@ function defaultScenarios() {
 const KEY = "n360-commission-calc-v1";
 const clone = (o) => JSON.parse(JSON.stringify(o));
 function loadState() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) return s; } } catch (e) { /* storage unavailable */ }
+  try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.rules && s.scenarios) { s.rules = Object.assign(clone(DEFAULT_RULES), s.rules); return s; } } } catch (e) { /* storage unavailable */ }
   return { rules: clone(DEFAULT_RULES), scenarios: defaultScenarios() };
 }
 let state = loadState();
@@ -319,7 +320,7 @@ const pvf = (v) => (Math.abs(v - Math.round(v)) < 1e-9 ? num(v) : num(v, 1));
 function money(v) {
   if (typeof v === "string") return v;
   const neg = v < 0, a = Math.abs(v);
-  const s = "S$" + (Math.abs(a - Math.round(a)) < 0.005 ? num(Math.round(a)) : num(a, 2));
+  const s = ((state && state.rules && state.rules.currency) || "S$") + (Math.abs(a - Math.round(a)) < 0.005 ? num(Math.round(a)) : num(a, 2));
   return neg ? "−" + s : s;
 }
 const pct = (v, d = 1) => (v * 100).toFixed(d) + "%";
@@ -366,7 +367,7 @@ function calc(sc, R) {
     const rates = (R.tiers.find(t => t.name === r.tier) || { r: [0, 0, 0] }).r;
     r.rates = rates.slice();
     r.levelPV = r.lv[0] * rates[0] / 100 + r.lv[1] * rates[1] / 100 + r.lv[2] * rates[2] / 100;
-    r.level = r.levelPV * R.pvValue;
+    r.level = r.levelPV * (R.payoutPerPV ?? R.pvValue);
     const legs = r.kids.map(k => rows.get(k).leg);
     const [s1, s2, s3] = R.special;
     const c1 = legs.filter(x => x >= s1.gv).length, c2 = legs.filter(x => x >= s2.gv).length, c3 = legs.filter(x => x >= s3.gv).length;
@@ -501,7 +502,7 @@ function renderScenario() {
     `<div class="r ${strong ? "strong" : ""}"><span>${esc(l)}</span><span class="num ${v < 0 ? "neg" : ""}">${money(v)}</span></div>`).join("");
 
   const o = sc.outside;
-  const fields = [["sales", "Sales outside this team (S$)"], ["sp", "Special shares outside"], ["gen", "Generation shares outside"],
+  const fields = [["sales", `Sales outside this team (${state.rules.currency})`], ["sp", "Special shares outside"], ["gen", "Generation shares outside"],
     ["ss", "Sales Stars outside"], ["dia", "Diamonds outside"], ["crown", "Crown Diamonds outside"], ["royal", "Royal Crown Diamonds outside"]];
   document.getElementById("sc-outside").innerHTML = fields.map(([k, l]) =>
     `<label class="field">${l}<input type="number" min="0" step="any" id="out-${k}" data-out="${k}" value="${Number(o[k]) || 0}"></label>`).join("");
@@ -524,7 +525,7 @@ function renderPerson(res) {
     : `${r.tier} needs ${num(R.tiers.find(t => t.name === r.tier).pv)} PV own + ${num(R.tiers.find(t => t.name === r.tier).gv)} GV team; has ${pvf(r.pv)} + ${pvf(r.gv)}.` +
       (next ? ` ${next.name} needs ${num(next.pv)} + ${num(next.gv)}.` : "");
   const lvWhy = r.tier === "None" ? "No tier, so no Level Bonus." :
-    [0, 1, 2].map(i => `L${i + 1} ${pvf(r.lv[i])} PV × ${r.rates[i]}%`).join(" + ") + ` = ${pvf(r.levelPV)} PV × ${money(R.pvValue)}`;
+    [0, 1, 2].map(i => `L${i + 1} ${pvf(r.lv[i])} PV × ${r.rates[i]}%`).join(" + ") + ` = ${pvf(r.levelPV)} PV × ${money(R.payoutPerPV ?? R.pvValue)}`;
   const legsTxt = r.legs.length ? r.legs.slice().sort((a, b) => b - a).map(pvf).join(", ") : "no legs";
   const spWhy = r.spShares
     ? `${r.legCounts[0]} legs at ${num(R.special[0].gv)}+ GV → ${r.spShares} share${r.spShares > 1 ? "s" : ""} of ${num(res.spTotal)}: ${money(res.sales)} × ${R.pools.special}% × ${r.spShares}/${num(res.spTotal)}`
@@ -688,11 +689,14 @@ function highlightRow() {
 function renderRules() {
   const R = state.rules, el = document.getElementById("rules");
   const inp = (path, v, cls = "") => `<input type="${cls === "txt" ? "text" : "number"}" step="any" class="${cls}" data-path="${path}" id="rule-${path.replace(/\./g, "-")}" value="${esc(v)}">`;
-  const tiers = `<div class="card"><h2>Tiers and Level Bonus rates</h2><p class="muted">A rep's tier is set by the month's own sales and team sales; it sets the rate paid on each of the 3 levels below.</p>
+  const cur = R.currency;
+  const brandCard = `<div class="card wide"><h2>Brand and PV value</h2><p class="muted">The name shown on every page, the currency, and what 1 PV is worth. Sales value turns PV into company sales; payout value turns the Level Bonus (in PV) into money.</p>
+    <div class="form"><label class="field">Brand name${inp("brand", R.brand, "txt")}</label><label class="field">Currency symbol${inp("currency", R.currency, "txt")}</label>
+    <label class="field">Sales value of 1 PV (${esc(cur)})${inp("pvValue", R.pvValue)}</label><label class="field">Payout value of 1 PV (${esc(cur)})${inp("payoutPerPV", R.payoutPerPV)}</label></div></div>`;
+  const tiers = `<div class="card wide"><h2>Tiers and Level Bonus rates</h2><p class="muted">A rep's tier is set by the month's own sales and team sales; it sets the rate paid on each of the 3 levels below.</p>
     <div class="tablewrap"><table><thead><tr><th>Tier</th><th class="n">Own sales (PV)</th><th class="n">Team sales (GV)</th><th class="n">Level 1 %</th><th class="n">Level 2 %</th><th class="n">Level 3 %</th></tr></thead><tbody>
     ${R.tiers.map((t, i) => `<tr><td><b>${esc(t.name)}</b></td><td class="n">${inp(`tiers.${i}.pv`, t.pv)}</td><td class="n">${inp(`tiers.${i}.gv`, t.gv)}</td>
-      ${[0, 1, 2].map(k => `<td class="n">${inp(`tiers.${i}.r.${k}`, t.r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
-    <label class="field">Value of 1 PV (S$)${inp("pvValue", R.pvValue)}</label></div>`;
+      ${[0, 1, 2].map(k => `<td class="n">${inp(`tiers.${i}.r.${k}`, t.r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`;
   const pools = `<div class="card"><h2>Bonus pools (% of company sales)</h2><p class="muted">Fixed slices of the month's company sales, shared out by shares or by rank.</p>
     <div class="form">${[["special", "Special Bonus pool"], ["generation", "Generation Bonus pool"], ["star", "Sales Star pool"], ["diamond", "Diamond pool"], ["crown", "Crown Diamond pool"], ["royal", "Royal Crown Diamond pool"]]
       .map(([k, l]) => `<label class="field">${l}${inp("pools." + k, R.pools[k])}</label>`).join("")}</div></div>`;
@@ -707,25 +711,25 @@ function renderRules() {
   const budget = `<div class="card"><h2>Budget and company costs</h2><p class="muted">From the client's costing slide. Product cost uses the safer end of the 20-25% range.</p>
     <div class="form"><label class="field">Maximum paid to reps (% of sales)${inp("budgetMax", R.budgetMax)}</label><label class="field">Buffer for extra leader commission (%)${inp("buffer", R.buffer)}</label>
     <label class="field">Card / NETS / PayNow charges (%)${inp("costs.card", R.costs.card)}</label><label class="field">Other operating cost (%)${inp("costs.operating", R.costs.operating)}</label>
-    <label class="field">Product cost per bottle (%)${inp("costs.product", R.costs.product)}</label><label class="field">Fixed costs per year (S$)${inp("costs.fixedYear", R.costs.fixedYear)}</label></div>
+    <label class="field">Product cost per bottle (%)${inp("costs.product", R.costs.product)}</label><label class="field">Fixed costs per year (${esc(cur)})${inp("costs.fixedYear", R.costs.fixedYear)}</label></div>
     <p class="note">Target paid to reps = maximum − buffer = ${pct((R.budgetMax - R.buffer) / 100, 0)}. The plan's bonuses alone can never pass ${pct(ceiling(R), 0)} of sales.</p></div>`;
   const CN = { "Product Member": "产品会员", "Junior Entrepreneur": "创业者", "Senior Entrepreneur": "资深创业", "Entrepreneur Partner": "创业合伙人" };
   const pkgs = `<div class="card"><h2>Membership packages</h2><p class="muted">From the client's costing slide, not the commission plan. A rep gets a package by paying its one-time joining fee; the bigger the package, the bigger the retail discount. The calculator costs the discount on each rep's own sales and counts it as money paid to reps. Joining fees are for reference only.</p>
-    <div class="tablewrap"><table><thead><tr><th>Package</th><th class="n">Joining fee (S$)</th><th class="n">Retail discount %</th></tr></thead><tbody>
+    <div class="tablewrap"><table><thead><tr><th>Package</th><th class="n">Joining fee (${esc(cur)})</th><th class="n">Retail discount %</th></tr></thead><tbody>
     ${R.packages.map((p, i) => `<tr><td>${esc(p.name)}${CN[p.name] ? ` <span class="muted">${CN[p.name]}</span>` : ""}</td><td class="n">${inp(`packages.${i}.fee`, p.fee)}</td><td class="n">${inp(`packages.${i}.disc`, p.disc)}</td></tr>`).join("")}</tbody></table></div></div>`;
-  const confirm = `<div class="card"><h2>Points to confirm with Nature 360</h2><p class="muted">Where the plan document or costing slide is unclear, the calculator makes the choice below. Change the rules above if the answer differs.</p>
+  const confirm = `<div class="card"><h2>Points to confirm with ${esc(R.brand)}</h2><p class="muted">Where the plan document or costing slide is unclear, the calculator makes the choice below. Change the rules above if the answer differs.</p>
     <ul class="note" style="margin:0;padding-left:18px;display:grid;gap:8px">
       <li><b>Tier by targets only.</b> Example 4 and Other Example 3 promote a rep for having a Gold direct or 5 Bronze directs (S$2,715 and S$504). The tier table has no such rule, so here those reps stay Bronze (S$1,860 and S$405).</li>
       <li><b>Silver team sales 9,000 GV</b> (tier table). Example 1's text says 7,200.</li>
       <li><b>Retail discount</b> is read as a discount on the rep's own orders. The slide doesn't say what the joining fee includes.</li>
       <li><b>“Referral 30%, team 15%, leader 5%”</b> on the costing slide is not in the commission plan and is not counted here.</li>
-      <li><b>Budget.</b> Costs are 55% of sales (3.5% + 26.5% + 25%), so paying reps 45% leaves nothing for the S$${Math.round(R.costs.fixedYear).toLocaleString("en-US")} a year of fixed costs. The plan's own profit table assumes 85% total costs, which leaves room for about 30% to reps.</li>
+      <li><b>Budget.</b> Costs are 55% of sales (3.5% + 26.5% + 25%), so paying reps 45% leaves nothing for the ${money(R.costs.fixedYear)} a year of fixed costs. The plan's own profit table assumes 85% total costs, which leaves room for about 30% to reps.</li>
     </ul></div>`;
-  el.innerHTML = tiers + pools + special + gen + ranks + budget + pkgs + confirm;
+  el.innerHTML = brandCard + tiers + pools + special + gen + ranks + budget + pkgs + confirm;
   el.querySelectorAll("input[data-path]").forEach(i => i.addEventListener("change", () => {
     const parts = i.dataset.path.split("."); let o = state.rules;
     for (let k = 0; k < parts.length - 1; k++) o = o[parts[k]];
-    o[parts[parts.length - 1]] = Number(i.value) || 0;
+    o[parts[parts.length - 1]] = i.type === "text" ? i.value : (Number(i.value) || 0);
     save(); renderAll();
   }));
 }
@@ -742,7 +746,14 @@ function route() {
   ui.view = view;
   renderAll();
 }
+function renderBrand() {
+  const R = state.rules, b = String(R.brand || "").trim() || "Reseller 383";
+  document.getElementById("brand-name").textContent = b + " Commission Calculator";
+  document.getElementById("brand-sub").textContent = `Commission plan v4 · one month · amounts in ${R.currency || "S$"}`;
+  document.title = b + " Commission Calculator";
+}
 function renderAll() {
+  renderBrand();
   if (ui.view === "overview") renderOverview();
   else if (ui.view === "scenario") renderScenario();
   else if (ui.view === "rules") renderRules();
